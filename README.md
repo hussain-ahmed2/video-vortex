@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# 🌪️ Video Vortex
+> **High-performance media detection and one-click downloader for the modern web.**
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Video Vortex is a premium Chrome extension designed to simplify media acquisition. It combines real-time network sniffing with DOM scraping to detect videos on any website, providing a sleek, unified interface for downloading content in its best available quality.
 
-Currently, two official plugins are available:
+![Video Vortex Preview](https://raw.githubusercontent.com/placeholder/video-vortex/main/assets/preview.png)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## 🚀 Key Features
 
-## React Compiler
+- **⚡ Live Stream Sniffing**: Advanced network interceptor catches `.mp4`, `.webm`, `.m3u8` (HLS), and `.ts` segments as they load.
+- **📥 One-Click Secure Download**: Initiate downloads directly through the Chrome Download Manager for maximum speed and reliability.
+- **🎨 Premium Vortex UI**: A stunning purple-to-blue dark mode dashboard with fluid animations powered by **Motion**.
+- **🔍 Smart Metadata**: Automatically detects page titles and suggests clean filenames for your downloads.
+- **🛡️ Privacy Focused**: All detection happens locally on your machine. No data ever leaves your browser.
+- **📦 Multi-Format Support**: Detects everything from direct file links to complex adaptive streaming manifests.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## 🛠️ Tech Stack
 
-## Expanding the ESLint configuration
+- **Framework**: [React 19](https://react.dev/)
+- **Build Tool**: [Vite](https://vitejs.dev/)
+- **Language**: [TypeScript](https://www.typescriptlang.org/)
+- **Styling**: [Tailwind CSS v4](https://tailwindcss.com/)
+- **Components**: [shadcn/ui](https://ui.shadcn.com/) (Standardized Variants)
+- **Animations**: [Motion](https://motion.dev/)
+- **Icons**: [Lucide React](https://lucide.dev/)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## 📦 Installation
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### For Developers
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/video-vortex.git
+   cd video-vortex
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Build the project:
+   ```bash
+   npm run build
+   ```
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+### Loading into Chrome
+1. Open Chrome and go to `chrome://extensions/`.
+2. Enable **Developer Mode**.
+3. Click **Load unpacked** and select the `dist` folder generated in the project directory.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 📖 How It Works
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+### The Vortex Engine
+- **Background Worker**: Uses `chrome.webRequest` to sniff headers and URLs, identifying media streams that are otherwise hidden from the DOM.
+- **Content Scraper**: Injected into every page to find static `<video>` and `<audio>` tags.
+- **Messenger**: A robust messaging bridge synchronizes detected assets between the active tab and the popup interface.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## 🛡️ Privacy & Ethics
+Video Vortex is designed for educational and personal archival purposes. Please respect the copyright and terms of service of the websites you visit. We do not support or encourage the unauthorized downloading of copyrighted material.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+## 📄 License
+MIT License. See `LICENSE` for details.
+
+---
+Built with ✨ by the Video Vortex Team.
