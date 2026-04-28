@@ -1,13 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Video Vortex",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Premium on-page video detection and downloader.",
   "permissions": [
     "activeTab",
+    "tabs",
     "downloads",
     "storage",
-    "webRequest"
+    "webRequest",
+    "declarativeNetRequestWithHostAccess"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -25,7 +27,8 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "run_at": "document_idle"
     }
   ],
   "icons": {
