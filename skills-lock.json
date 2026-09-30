@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "skills": {
+    "architect": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/architect/SKILL.md",
+      "computedHash": "ff57c65a06ca4047420113d1eaa18e5002bc657224688b9350a1f06d77204327"
+    },
+    "audit": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/audit/SKILL.md",
+      "computedHash": "a8d524118ce6d60911840ef31509f1f5551ce1099cb8fd8a241ed0859e5c62ed"
+    },
+    "check": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/check/SKILL.md",
+      "computedHash": "3f21e5cf83a65be1c0fd07fa9f4a75ae31f4f2d169d862be6aec6e6e7adb0382"
+    },
+    "chrome-extension": {
+      "source": "samber/cc-skills",
+      "sourceType": "github",
+      "skillPath": "skills/chrome-extension/SKILL.md",
+      "computedHash": "5dd6426a67ee46af74723726bb3fb512791c078836e6d38667240a40f3612840"
+    },
+    "chrome-extensions": {
+      "source": "googlechrome/modern-web-guidance",
+      "sourceType": "github",
+      "skillPath": "skills/chrome-extensions/SKILL.md",
+      "computedHash": "1e8525bb49647008dcd3a6b7e5d3c3207345f086e7a64d7e6d5bcc67dbba7a71"
+    },
+    "chrome-webstore-release-blueprint": {
+      "source": "brianlovin/agent-config",
+      "sourceType": "github",
+      "skillPath": "skills/chrome-webstore-release-blueprint/SKILL.md",
+      "computedHash": "23d2440e5d4a4370742b501cd932901bc1277c73b8319b1ee3b2556ab3b68fe3"
+    },
+    "crxjs": {
+      "source": "samber/cc-skills",
+      "sourceType": "github",
+      "skillPath": "skills/crxjs/SKILL.md",
+      "computedHash": "842a54044b81f458a71420273eae0d38d027ff072d31fee91e2928a7b38cfaa8"
+    },
+    "debug": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/debug/SKILL.md",
+      "computedHash": "bc5bffa19310d272abc205966b85f5f80d562ccfa16c39b1b92701026e676e30"
+    },
+    "develop": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/develop/SKILL.md",
+      "computedHash": "42dc998560097e8fe95e78f08df574ef4e5110b9ceacdd5ae3fdf68808f51c59"
+    },
+    "document": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/document/SKILL.md",
+      "computedHash": "90933443f204d2ed29c84730be87b7b5470f6819fccde6129aedad1df517fb92"
+    },
+    "github-actions-templates": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "skillPath": "plugins/cicd-automation/skills/github-actions-templates/SKILL.md",
+      "computedHash": "26d9b7d4392712d3ff500ff535c8f68c03820111e22af74fd579f58f605b2166"
+    },
+    "motion-foundations": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/motion-foundations/SKILL.md",
+      "computedHash": "f76298f3fcc5f20001c8e78cfa36384469c5a583cb25e8ce60a76d3912608d99"
+    },
+    "motion-patterns": {
+      "source": "affaan-m/ecc",
+      "sourceType": "github",
+      "skillPath": "skills/motion-patterns/SKILL.md",
+      "computedHash": "71d7279a0651e6cb95a0fe804c77cb7bfa88befba1cbd1c60c05d23feada4dcc"
+    },
+    "scope": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/scope/SKILL.md",
+      "computedHash": "cc3683a45b96c1b0ecb23f9aba64263be096cb3ef2487662c0fe7e7c3200fb70"
+    },
+    "sync": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/sync/SKILL.md",
+      "computedHash": "005f989b25192d3dbb4bf4e89630a3c31da8ea45dd77939102f263052309e409"
+    },
+    "tailwind-v4-shadcn": {
+      "source": "secondsky/claude-skills",
+      "sourceType": "github",
+      "skillPath": "plugins/tailwind-v4-shadcn/skills/tailwind-v4-shadcn/SKILL.md",
+      "computedHash": "f671120a57119a94f8a6447a760629878b8ead36750297697006136dbaac4355"
+    },
+    "test": {
+      "source": "jsmastery-pro/skills",
+      "sourceType": "github",
+      "skillPath": "skills/test/SKILL.md",
+      "computedHash": "87dd379cca618d8cb2ca3d5073ffa8be6755e5822e7834a3c0ebe06bd3853f1f"
+    },
+    "vercel-react-best-practices": {
+      "source": "vercel-labs/agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/react-best-practices/SKILL.md",
+      "computedHash": "3219a1944e404ffc14d1d9d6aef6dd2e3855b81387ee0a044ccbfe14d34c2357"
+    },
+    "vite": {
+      "source": "antfu/skills",
+      "sourceType": "github",
+      "skillPath": "skills/vite/SKILL.md",
+      "computedHash": "88ee465fd10f711efecc76e91e96accae2b229dda371614dcf219099c264a486"
+    }
+  }
+}
