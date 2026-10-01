@@ -1,7 +1,7 @@
 # 0001. Detection engine architecture
 
 **Date**: 2026-09-30
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

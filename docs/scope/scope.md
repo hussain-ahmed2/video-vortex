@@ -18,7 +18,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 1 | Detection engine architecture | Foundation | in-progress |
 | 2 | Documentation and comment conventions · Alpha | Foundation | in-progress |
 | 3 | Test harness and message contract | Foundation | in-progress |
-| 4 | Popup design language | Foundation | planned |
+| 4 | Popup design language | Foundation | done |
 | 5 | Walking skeleton: detect, list, download | Slice 1 | planned |
 | 6 | Media source and blob stream detection | Slice 2 | planned |
 | 7 | Honest handling of HLS and DASH | Slice 2 | planned |
@@ -82,10 +82,26 @@ Stand up the runner and the fakes for the extension APIs, and pin the message co
 - [ ] Document it: `/document test harness and message contract`
 [Spec 0002](../specs/0002-test-harness-and-message-contract/index.md) · code in `./src/testing/`, runner config in `vite.config.ts`, first tests in `./src/lib/`
 
-### 4. Popup design language · needs a decision
+### 4. Popup design language
 Define the reworked look as a system (color, type, spacing, component states, motion, keyboard and focus), so the popup is built once against a written language rather than reworked twice.
 **Done when:** a design spec covers color, type, spacing, the component set with its loading, empty and error states, the accessibility target, and the primitives the popup needs.
-- [ ] Design it (spec): `/architect popup design language`
+- [x] Design it (spec): `/architect popup design language`
+- [x] Build it: `/develop popup design language` (token layer, guard test, dead rules, the new primitives; the popup rebuild itself is slice 1's task)
+   - [x] Token layer rewritten: the namespace reset, the dark values on `:root`, every value from the spec's token tables, with the four imports, the radius scale, `--font-heading` and the base reset all kept
+   - [x] Popup colours migrated onto the tokens, including the two mechanisms a palette step would never have caught: the literal `rgba()` glow and the gradient stop behind the transparent title
+   - [x] Dead rules gone: `.vortex-gradient`, `.glass`, the never activated `.dark` block and the `Inter` declaration, plus a `body` rule whose `hsl(var(--background))` could not resolve an `oklch` value and so left the popup sitting on the white canvas
+   - [x] Design token guard added with the specified match set, and proven against the real tree by injecting a palette step and then the glow shadow, watching the build go red each time
+   - [x] Five components added: `skeleton`, `progress` and `tooltip` generated through the shadcn skill, plus `empty-state` and `notice` as compositions under `src/components/`, each against these tokens
+   - [x] `progress` fill moved from `--primary` to `--muted-foreground`, so a row in flight is never brighter than the action, measured 5.84:1 against its own track
+   - [x] `DownloadStatus.state` pinned from a bare `string` to a `DownloadState` union of `in_progress`, `complete`, `interrupted`, proven to bite by injecting a fourth value and watching `tsc` refuse it (spec build plan task 6, whose remaining part is slice 1's)
+   - [x] Verification fixes after `/check verify` failed AC-5 and AC-8: `MotionConfig reducedMotion="user"` in `src/main.tsx`, the logo spin and glow pulse removed, three spinners gated behind `motion-safe:`, the spring tween turned into a duration, and the popup's own progress fill moved off `--primary` (the shadcn `Progress` primitive is not imported anywhere, so changing it had no effect on the running popup)
+
+   `switch`, `select` and `alert-dialog` are named in the spec and deliberately not built here: the first two belong to the options page (feature 12) and the third to the overwrite case, which has no feature of its own yet.
+- [x] Verify it: `/check verify popup design language` (all twelve criteria met on 2026-10-01, evidence in the feature's verify.md)
+- [x] Test it: `/test popup design language` (243 tests across 16 files, green. 205 on the first pass; /debug added 20 for the four review majors, then this pass added 18 covering AC-1, AC-5 and AC-6, which nothing automated. The contrast ratios are now recomputed from the oklch tokens rather than trusted, and all four were checked by breaking the contract first.)
+- [x] Review it (fresh model): `/check review popup design language` (two runs on 2026-10-01, both Changes requested. First was same model as the author and is kept at docs/reviews/2026-10-01-main-same-model.md. Second was the independent pass, 4 majors and 10 minors. Four majors still open.)
+- [x] Document it: `/document popup design language` (PR description written as chat text; no branch or `gh`, so it is not opened)
+[Spec 0003](../specs/0003-popup-design-language/index.md) · tokens in `src/index.css`, guard in `src/testing/guards/`, primitives in `src/components/ui/` and `src/components/`, popup rebuild in slice 1
 
 ## Slice 1: the walking skeleton
 

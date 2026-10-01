@@ -1,195 +1,312 @@
-# 0003 rationale. Popup design language
+# Rationale: 0003. Popup design language
 
 ## Context
 
-The popup is a 420 pixel surface that people open while a video plays, look at for two
-seconds, and click. It has no designer, no reference design, and no written rules, so every
-change has been made by reaching for a value that looked right in the file being edited.
-The result is 58 hardcoded colour utilities across 17 distinct values in a single
-component, next to a token layer that is not connected to any of them.
+The popup is the only part of the extension a user actually looks at, and it is the least considered.
+It was written first, quickly, and it shows in ways that compound.
 
-The token layer is in worse shape than simply being unused. `:root` holds light values, a
-separate `.dark` block holds a near monochrome dark set, and nothing ever applies the
-`.dark` class, so `body` resolves `bg-background` to white and the popup only looks dark
-because `App.tsx` paints `bg-slate-950` over the top. The dark set is the better half of
-the token layer and is entirely dead code. A declared `--font-sans: "Inter"` is never
-loaded and is then overwritten by Geist one block later. `.vortex-gradient` and `.glass`
-are referenced by nothing. No reduced motion handling exists, and the logo spins forever.
+The styling does not come from one place. `src/index.css` carries the full shadcn token set with
+light values on `:root`, and a second dark set under `.dark` that nothing ever activates, because no
+element is ever given that class. Meanwhile `src/App.tsx` paints the dark look with hardcoded
+utilities, so the token layer is present, plausible, and inert. The interface's real colours are 37
+distinct raw colour utility strings built from 17 palette values, plus two mechanisms that are not
+palette steps at all: a `shadow-[0_0_15px_rgba(168,85,247,0.2)]` glow and a gradient title. Nobody
+chose that palette; it accumulated one value at a time.
 
-Three forces shaped the answer. The popup is dense, so a large type scale and generous
-spacing would push streams below the fold. It is a utility people open in a hurry, so
-colour that means nothing is noise. And it is a download tool, so the words "audio" and
-"video" have to survive greyscale, in bright sun, and for anyone who cannot separate the
-hues anyway.
+Two of those accumulated details are defects rather than style. `body` resolves `bg-background` from
+the light `:root`, so the popup is painted white and then covered, which flashes white on every open.
+And `--font-sans` is declared as Inter in one `@theme` block and overridden by Geist Variable in the
+next, so the token and the rendered text disagree.
+
+The vocabulary the popup would have to render already exists and is not what a UI designer would have
+guessed. Spec 0001 defines a record's status as `observing`, `ready`, `blocked` or `unsupported`,
+which is a description of the page rather than of the media, and two of those four are page level
+failures with no visual treatment anywhere. Download progress is a separate vocabulary again,
+`DownloadStatus.state`, and it is declared as a bare `string` in `src/lib/schemas.ts`, so nothing in
+the type system says which values exist.
+
+The forces shaping the decision: the shadcn primitives are generated and must stay generated, so the
+token vocabulary has to stay interoperable with the CLI rather than be renamed into a project dialect.
+That has a sharp edge, because `--color-*: initial` deletes every unmapped colour utility at once,
+and the primitives that exist today reference four tokens a from-scratch palette would not think to
+include. The project targets WCAG 2.2 AA, and 2.2 added SC 2.5.8 Target Size at Minimum, which a
+dense list of small controls can fail without anyone noticing. And the build approach is Tracer
+Bullet, so a decision that only pays off in feature 12 has to survive being ignored for many slices.
 
 ## Options considered
 
 ### Enforcement
 
-**Namespace removal plus a source walking test, the one right way.** A build level
-`--color-*: initial` makes a raw colour utility stop existing, and a test fails on the
-source before that happens. Strongest available, because the removal is enforced by the
-build and the test covers the gap the removal leaves.
+**Option 1: Remove the default colour namespace, plus a guard test (chosen)**
 
-*Pros*: the wrong value cannot be expressed, and the silent failure mode is covered.
-*Cons*: two mechanisms to keep, and the guard has to be maintained.
+`--color-*: initial` deletes every default colour utility at build time. A walking test fails on raw
+colour in the source, including the three cases the reset cannot catch.
 
-**Documentation only.** The rules go in `AGENTS.md` and review catches violations.
-*Pros*: nothing to build.
-*Cons*: review is exactly what did not stop 58 hardcoded values. It decays the first time
-someone is in a hurry.
+**Pros**: The wrong utility stops existing, so it cannot be reached for by accident. The test names the
+offending file and class. No new dependency, and it gates the existing build.
 
-**An ESLint plugin.** Real enforcement, reads JSX class strings directly.
-*Pros*: precise, and reports at the offending line.
-*Cons*: a new dependency and config surface for one rule, and no core rule can see inside
-a `className` string.
+**Cons**: Two mechanisms to understand. The reset alone is a trap, because it fails silently, and it
+misses arbitrary values and gradient stops entirely, so the guard has a longer match set than the
+reset does.
+
+**Option 2: Guard test only**
+
+Keep the default namespace, fail the test on raw colour.
+
+**Pros**: One mechanism. Nothing about the build changes.
+
+**Cons**: The utilities remain available and correct, so the only thing between a hurried edit and a
+hardcoded colour is a test that has to be remembered. It does run in the build, but the build itself
+would still ship one if the test were ever skipped.
+
+**Option 3: Documentation only**
+
+Write the language into `AGENTS.md` and rely on review.
+
+**Pros**: Cheapest. No machinery.
+
+**Cons**: This is what produced the current 37 strings. `AGENTS.md` already carries a line telling the
+next agent to match the hardcoded slate and purple look, and no one has. Review catches a colour when
+a reviewer is looking for one.
+
+**Option 4: An ESLint plugin**
+
+A rule reading JSX `className` strings, since no core rule can see inside a class string.
+
+**Pros**: Reports at the exact line, with an editor squiggle.
+
+**Cons**: A new dependency and a config surface, for a check this project can express in the harness it
+already has.
 
 ### Rollout
 
-**Slice 1 rebuilds the popup, old look deleted.** One migration, no coexistence.
-*Pros*: matches the tracer bullet rule already set by spec 0001 for the old pipeline, and
-never leaves the repo with two looks.
-*Cons*: slice 1 absorbs the token layer, eight primitives, the guard and a rewrite.
+**Option 1: Single migration inside slice 1, old look deleted (chosen)**
 
-**Language now, popup restyled later.** Nothing blocks, but two looks are alive at once
-and a half migrated popup can sit indefinitely.
-*Pros*: smaller slices.
-*Cons*: the migration has no owner and no deadline.
+**Pros**: One look alive at a time. The same rule spec 0001 applies to the old pipeline, so the project
+has one habit rather than two. Slice 1 is the first slice that touches the popup, so nothing is
+deferred to a moment that will not arrive.
 
-**Tokens only, migrate whenever.** *Pros*: least work now. *Cons*: no deadline means no
-migration.
+**Cons**: Slice 1 gets bigger, and the first demo lands later.
 
-### Typeface
+**Option 2: Language now, popup restyled in a later slice**
 
-**Keep Geist Variable.** Already a dependency, already loaded, already rendering, and a
-variable font so weight costs nothing.
-*Pros*: the current look is preserved, the dead Inter declaration goes.
-*Cons*: a webfont is still a webfont.
+**Pros**: Slice 1 stays small.
 
-**Switch to Inter.** Makes the existing declaration true, but Inter is not installed and
-would need adding, for no visible gain.
-*Pros*: one less contradiction. *Cons*: a new dependency and font swap.
+**Cons**: Two looks coexist, and the migration has no deadline, so it tends not to happen. The dark
+token block has been sitting there, unused, since the first commit.
 
-**System stack only.** Smallest popup, no flash, and a different look per platform.
-*Pros*: smallest, fastest. *Cons*: the "one look" goal gives up a dimension.
+**Option 3: Tokens only, migrate whenever the popup next changes**
 
-### Component set
+**Pros**: Least work now.
 
-**The four states plus the options page controls, tooltips and a confirm dialog.** The
-scope's own done condition names loading, empty and error; the engine already produces
-four record statuses; and the popup has icon only buttons and a download that can
-overwrite.
+**Cons**: The same unbounded deferral as Option 2, with less clarity about when the popup is next
+touched at all.
 
-*Pros*: the missing pieces are named and added while the rules that govern them are being
-written, rather than picked by whoever needs them first.
-*Cons*: eight primitives is real work, and the dialog and the options page controls have
-no caller until features 12 and the download slice arrive.
+### Theme mode
 
-**Ship only the four states.** The minimum the scope names.
-*Pros*: smallest. *Cons*: the icon only buttons stay unexplained, and the options page
-gets designed in a later feature with no rules to follow.
+**Option 1: Dark only, tokens shaped so light can arrive (chosen)**
+
+**Pros**: One palette to verify and maintain; the contrast table is measured once. Dark is what the
+popup already is, so this is not a redesign.
+
+**Cons**: A user with a light system preference gets a dark popup. Adding light later is a new `:root`
+block plus a re-measured table.
+
+**Option 2: Both themes now**
+
+**Pros**: No user is stuck with a mismatch.
+
+**Cons**: Doubles the palette to design, verify and keep in sync for a mode the product does not need.
+A popup is a small surface opened for seconds, so the mismatch cost is low and the maintenance cost
+is permanent.
+
+**Option 3: Follow the system**
+
+**Pros**: The convention users expect from a native feeling app.
+
+**Cons**: Same cost as Option 2, plus a theme provider and a class toggle in a popup that needs
+neither. It also walks straight into the trap already in the code, where a dark block exists and
+nothing sets the class.
+
+### Palette
+
+**Option 1: Near monochrome, colour reserved for actions (chosen)**
+
+**Pros**: Matches what the popup already looks like. A media list is mostly text, and one text ramp is
+the one a designer can verify. Records are distinguished by icon and text, which is the accessible
+answer anyway.
+
+**Cons**: The primary action is an inversion rather than a coloured button, so it reads quieter than
+some users expect from a download button. A near monochrome palette is only viable if the surface
+steps are handled honestly, which turned out to be the harder half of this decision.
+
+**Option 2: Near monochrome plus one brand accent**
+
+**Pros**: A brand colour for the primary action, a little more identity.
+
+**Cons**: One more hue to keep accessible, and one more thing to argue about in review.
+
+**Option 3: A colour per stream type or status**
+
+**Pros**: Fast to scan.
+
+**Cons**: Fails the moment two hues collide, needs a legend, and is useless to a user who cannot
+separate them. The popup already has the accessible version of this, with icons and labels.
+
+### Smaller decisions
+
+- **Typeface**: keep Geist Variable. It is imported and rendering, it is variable so weight costs
+  nothing extra, and the `Inter` declaration is dead. Switching to Inter means adding a dependency; a
+  system stack alone means a different look per machine.
+- **Token vocabulary**: keep shadcn's names (`background`, `card`, `foreground`, `ring`) rather than
+  renaming to a project dialect (`surface-base`, `text-primary`). The shadcn names are vaguer, and that
+  vagueness is the price of the primitives and future CLI installs working untouched. A project dialect
+  would mean editing generated code, which `AGENTS.md` forbids.
+- **Row surface**: rows carry no fill. This was not a preference but a consequence, described below.
+- **Component inventory**: the four state components (`skeleton`, `empty-state`, `notice`, `progress`)
+  are required now, because the popup has none of them and the engine spec already names the states
+  they have to render. `tooltip` joins them, because the popup has icon only controls today.
+  `switch`, `select` and `alert-dialog` are specified now so the look is decided, and generated when
+  the feature needing them lands.
+- **References**: verified against W3C, MDN, Tailwind and shadcn, because the accessibility section is a
+  list of specific numbers and a wrong number in a spec is worse than no number.
 
 ## Rationale
 
-Enforcement came down to one fact: an unknown Tailwind utility is dropped silently and the
-build still passes. That makes the namespace removal necessary but not sufficient, and
-converts the test from a nice to have into the half of the pair that actually catches a
-mistake. The two are cheap together, a build line and a guard in a harness that already
-walks the AST, so there is no real case for either alone.
+The deciding consideration was that the current drift was not caused by a missing rule. There was no
+rule, and the tokens that would have been the rule were already in the file, correctly written and
+inert. Documentation was therefore the option least likely to change anything, which is why it lost to
+the two options that make the wrong thing impossible or loud.
 
-Rollout follows the precedent rather than inventing a new one. Spec 0001 settled that the
-old pipeline is removed in the same pass that builds the new one, and letting the popup
-keep a legacy look while the new language lands would contradict that within one project.
-The honest cost is that slice 1 gets bigger, and the spec says so rather than hiding it.
+Between the two enforcement mechanisms, the namespace removal is stronger because it removes the
+capability rather than reporting its use, and it costs one line. It could not stand alone, for a
+specific reason found while testing it. An unknown utility is not an error in Tailwind v4, so removing
+the namespace means a reintroduced colour utility builds cleanly and then does nothing at run time. A
+silent failure inside a design token system is precisely the failure this standard exists to prevent,
+so the test is what makes the reset safe rather than a redundant extra. The reset also turned out to
+have a smaller reach than expected: it governs colour utilities and nothing else, so a literal
+`rgba()` inside an arbitrary shadow, and a gradient stop behind a `text-transparent` title, both pass
+straight through. The second of those is the nastier failure, because removing the gradient stops
+leaves the title invisible rather than merely uncoloured. Hence the guard's explicit match set.
 
-The palette decision was nearly free because the answer was already in the repo. The
-dead `.dark` block is pure greyscale, `oklch(L 0 0)` throughout, with exactly one
-chromatic value, the destructive red. The direction chosen, near monochrome with colour
-reserved for meaning, is what shadcn's dark neutral set already is. The work is
-connecting it and deleting the light half, not designing something new.
+Rollout follows the same principle one level up. Keeping the old look alongside the new one would
+leave the inert-token problem in place, since a token layer with a competing palette still in the
+codebase is exactly the state this repo is in now.
 
-The type scale and the 40 pixel row are the two numbers that fight each other and both
-had to hold. Six or seven streams without scrolling sets a hard ceiling on row height,
-and 40 pixels clears the 24 by 24 CSS pixel minimum that WCAG 2.2 added for target size
-without any of the controls inside the row being exempt. There is no version of this that
-is both comfortable and compliant that does not land on roughly this.
+The palette was chosen less on taste than on arithmetic, and the arithmetic changed the design. The
+first token set took the shadcn dark values as given, which put `--card` 1.10:1 above
+`--background`, and then wrote that a row boundary could come from a 10% alpha `--border`. Measuring
+the rendered result showed that border at 1.32:1, and the surface step is not something a viewer can
+see either. A list built that way would be an undifferentiated block of text on near black. The fix
+was to stop giving rows a fill at all, let a solid separator carry the edge, and then raise `--border`
+and `--ring` until the numbers held. The same pass caught that `--ring` was specified at a value that
+clears 3:1 as a raw token but only reaches 2.16:1 once composited at the 50% alpha the primitives
+actually render, which is the kind of error that a spec asserting a contrast ratio without measuring
+the rendered value would have shipped.
 
 ## Evidence
 
-### The namespace removal, measured on the installed version
+Measured in this repo, on 2026-09-30.
 
-`tailwindcss 4.2.4` and `@tailwindcss/vite 4.2.4`, from `package-lock.json`.
+**Inventory of the current state.** `src/App.tsx` uses 37 distinct raw colour utility strings,
+including alpha variants, built from 17 palette values. The count is reproducible only under one rule,
+so the rule is stated: distinct utility strings, not distinct values, with `white` and `transparent`
+folded into the palette count. Separately, and not reachable by counting palette steps, `App.tsx`
+carries `shadow-[0_0_15px_rgba(168,85,247,0.2)]` and a `bg-clip-text text-transparent` title over
+`from-purple-400 to-blue-400`. `src/index.css` declares a light palette on `:root`, a dark palette
+under `.dark` that nothing activates, `.vortex-gradient` and `.glass` which are unreferenced, and
+`--font-sans: Inter` immediately before the Geist Variable override.
 
-| Step | Result |
-|---|---|
-| Baseline build, is `bg-slate-950` in the CSS | present |
-| Add `--color-*: initial` to `@theme` | `bg-slate-950` absent from the built CSS |
-| Also define a custom token, use `bg-vv-brand` | custom utility compiles, so the reset is not overzealous |
-| Build exit status with the reset in place | succeeds |
-| Any default colour utility anywhere in the output | none |
+**Namespace removal, tested.** Adding `--color-*: initial` to `src/index.css` and rebuilding:
+`bg-slate-950` went from 1 occurrence in `dist/assets/*.css` to 0, and no
+`bg-{slate,zinc,neutral,gray,red,purple,emerald}-*` utility survived anywhere in the output. Defining
+a custom token after the reset still produced a working utility, so the reset does not block custom
+tokens. The build succeeded with the utility absent, which is the silent failure the guard exists to
+catch. Both files were restored and the suite re-run at 126 passing. Pinned version:
+`tailwindcss@4.2.4`.
 
-The build succeeding is the load bearing detail. The removal deletes the utility's CSS
-without failing anything, so a mistaken `bg-slate-500` arrives as an element with no
-background rather than as an error. Hence the guard.
+**Tokens the reset would have broken, found by grep.** The live primitives reference
+`bg-secondary`, `text-secondary-foreground`, `border-input`, `bg-input/30`, `bg-input/50`,
+`bg-muted/50` and `text-card-foreground`. A from-scratch palette that defined only the values the
+popup appears to need would have left the secondary button variant, the outline button's border and
+every card footer hover rendering unstyled, silently, with the build still green.
 
-### Contrast, computed from the oklch values
+**Contrast, computed from the oklch values.** WCAG relative luminance and contrast ratio, with alpha
+composited in device space before luminance, since measuring the token rather than the rendered value
+is what produced the ring error described above.
 
-Converted oklch to linear sRGB, then to WCAG relative luminance, rather than eyeballed.
+| Pair | Measured | Requirement |
+|---|---|---|
+| `--foreground` on background / on card | 17.68:1 / 15.39:1 | 4.5:1, passes |
+| `--muted-foreground` on background / on card | 7.94:1 / 6.91:1 | 4.5:1, passes |
+| `--subtle-foreground` on background / on card | 6.12:1 / 5.33:1 | 4.5:1, passes |
+| faintest grey clearing 4.5:1 on card | `L=0.61` | so `0.65` is the floor for text |
+| `--card` on background | 1.15:1 | too low to carry a boundary, hence unfilled rows |
+| `--border` on card / on background | 1.47:1 / 1.69:1 | a visible separator |
+| `--border` as the original 10% alpha white | 1.32:1 | not an edge, so the token became solid |
+| `--input` on card, full opacity | 3.53:1 | 3:1, passes |
+| `--ring` on card / on background at the 50% rendered | 3.14:1 / 3.20:1 | 3:1, passes |
+| `--ring` at `oklch(0.62 0 0)`, the first value tried | 2.16:1 | 3:1, fails |
+| `--primary-foreground` on `--primary` | 15.18:1 | 4.5:1, passes |
+| `--secondary-foreground` on `--secondary` | 11.29:1 | 4.5:1, passes |
+| `--destructive` on background | 6.86:1 | 4.5:1, passes |
+| a disabled grey on card | 2.04:1 | exempt, disabled controls only |
 
-- `text-tertiary` at 0.62 is the floor: 5.44:1 on base, 4.92:1 on raised, both above 4.5.
-- At 0.55 it is 4.08:1 and 3.69:1, failing body text on both surfaces. That is the
-  measurement that sets the floor.
-- `text-disabled` at 0.4 is 2.15:1, which is expected and exempt, since WCAG 1.4.3 does
-  not apply to inactive controls.
-- `border-control` and `ring` at 0.62 give 5.44:1 and 4.92:1 against a 3:1 non text
-  requirement.
-- `destructive` red gives 6.86:1 and 6.21:1.
-- `surface-raised` against `surface-base` is 1.1:1, which is why the spec forbids relying
-  on the surface step alone to mark a boundary.
+**Standards confirmed.** WCAG 2.2 SC 1.4.3 AA is 4.5:1 for normal text and 3:1 for large text, where
+large is 18pt (24px) or 14pt bold (about 18.7px). SC 1.4.11 AA is 3:1 and covers UI component
+boundaries and states. WCAG 2.2 changed neither criterion; it added SC 2.5.8 Target Size at Minimum
+(AA, at least 24 by 24 CSS pixels), 2.5.7 Dragging Movements, 2.4.11 and 2.4.12 Focus Not Obscured,
+2.4.13 Focus Appearance (AAA), 3.2.6 Consistent Help, 3.3.7 Redundant Entry, and 3.3.8 and 3.3.9
+Accessible Authentication. `prefers-reduced-motion` has two values, `reduce` and `no-preference`.
+Tailwind v4 ships `motion-reduce:` and `motion-safe:` for it, and `focus-visible:`.
 
-### Corrected during research
-
-Two things were wrong in the assumptions going in, and both changed the spec:
-
-- The shadcn v4 setup expects a `.dark` **class**, not `prefers-color-scheme`. The
-  scaffold's `@custom-variant dark` replaces Tailwind's media query default. So a light
-  theme later is a new `:root` block plus the class, not a media query.
-- WCAG 2.2's additions are wider than contrast. Target Size at Minimum (2.5.8, AA,
-  24 by 24 CSS pixels) and Focus Not Obscured (2.4.11) are both AA and both bear directly
-  on a dense list, which is why the row height is specified against 2.5.8.
+**Not verified.** The shadcn dark mode documentation page renders client side and returned no body
+text, so the claim that shadcn's Tailwind v4 setup expects a `.dark` class over the media query comes
+from its theming and installation pages rather than from that page. The namespace removal behaviour was
+not re-tested against any Tailwind version other than the pinned 4.2.4. The motion layer was not
+exercised in a browser: `<MotionConfig reducedMotion="user">` is the documented way to honour the
+setting for `motion/react`, and `/check verify` should confirm it against the real popup.
 
 ## References
 
-**Project sources** (verifiable, in this repo):
+**Project sources** (in this repo):
 
-- `AGENTS.md`, the popup is dark by convention and hardcodes slate and purple
-- `src/index.css`, the unused light `:root`, the dead `.dark` block, the Inter conflict
-- `src/App.tsx`, 58 hardcoded colour utilities, the infinite logo and glow
-- `src/lib/schemas.ts`, the four record statuses the state list must cover
-- spec 0001, the rule that the old thing is deleted in the same pass
-- `src/testing/guards/`, the shape the new guard follows
-- `test-preferences.json`, Vitest and colocated tests
-- `tailwind-v4-shadcn` (`.agents/skills/tailwind-v4-shadcn/`), Tailwind v4 CSS first tokens
-- `motion-foundations`, `motion-patterns` (`.agents/skills/`), reduced motion and spring limits
+- `src/index.css` — the two token blocks, the dark `.dark` palette nothing activates, the font
+  contradiction, the unreferenced `.vortex-gradient` and `.glass`, the imports and base rules the
+  primitives depend on
+- `src/App.tsx` — the raw colour utilities, the literal `rgba()` glow, the gradient title, the two
+  infinite animations, the two section scroll areas, the frozen 30% progress bar, the ad hoc layout
+  values
+- `src/components/ui/` — the four generated primitives, and the tokens they reference that the reset
+  would otherwise delete
+- `src/lib/schemas.ts` — `DownloadStatus.state` typed as a bare `string`
+- `AGENTS.md` — the generated primitives rule, and the dark popup line this spec supersedes
+- `docs/specs/0001-detection-engine-architecture/0001-state-store.md` — `TabMedia.status` and its four
+  values, which this spec designs treatments for
+- `docs/specs/0002-test-harness-and-message-contract/` — the harness and the source walking guards the
+  new guard test follows
+- `docs/scope/scope.md` — feature 4, the popup design language
+- Installed skills: `tailwind-v4-shadcn`, `motion-foundations`, `shadcn`, `chrome-extensions`
 
 **Practices & standards**:
 
-- WCAG 2.2 AA, success criteria 1.4.3, 1.4.11, 2.4.11 and 2.5.8
-- Tailwind CSS v4 `@theme` namespace removal with `--color-*: initial`
-- shadcn/ui theming: tokens under `:root` and `.dark`, mapped by `@theme inline`
-- OKLCH for perceptual lightness, so the contrast floor is one number rather than a guess
-- Never signalling state with colour alone
+- Design tokens as the single source for colour, defined in CSS and consumed as utility classes
+- WCAG 2.2 Level AA, SC 1.4.1 Use of Colour, 1.4.3 Contrast Minimum, 1.4.11 Non text Contrast,
+  2.4.7 Focus Visible, 2.5.8 Target Size Minimum
+- `prefers-reduced-motion` as the operating system signal, honoured through `MotionConfig
+  reducedMotion="user"` for library animation and `motion-reduce:` for CSS
+- Strangler migration applied to a look rather than a pipeline: replace in one pass, never run both
+- Mechanical enforcement over documented convention, the same principle spec 0002 applied to module
+  boundaries
 
-**Links** (web verified during the landscape check):
+**Links** (web verified):
 
 - Understanding SC 1.4.3: Contrast (Minimum): https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html
 - Understanding SC 1.4.11: Non-text Contrast: https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html
 - What's New in WCAG 2.2: https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/
-- WCAG 2.2: https://www.w3.org/TR/WCAG22/
-- Using CSS :focus-visible for keyboard focus indication: https://www.w3.org/WAI/WCAG22/Techniques/css/C45
-- prefers-reduced-motion: https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion
-- Theme variables (Tailwind CSS): https://tailwindcss.com/docs/theme
-- Hover, focus, and other states (Tailwind CSS): https://tailwindcss.com/docs/hover-focus-and-other-states
-- Theming (shadcn/ui): https://ui.shadcn.com/docs/theming
-- Manual Installation (shadcn/ui): https://ui.shadcn.com/docs/installation/manual
-- Dark mode (shadcn/ui): https://ui.shadcn.com/docs/dark-mode
+- Using CSS :focus-visible to provide keyboard focus indication: https://www.w3.org/WAI/WCAG22/Techniques/css/C45
+- prefers-reduced-motion CSS media feature: https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion
+- :focus-visible: https://developer.mozilla.org/en-US/docs/Web/CSS/Reference/Selectors/:focus-visible
+- Theme variables, Tailwind CSS: https://tailwindcss.com/docs/theme
+- Hover, focus, and other states, Tailwind CSS: https://tailwindcss.com/docs/hover-focus-and-other-states
+- Theming, shadcn/ui: https://ui.shadcn.com/docs/theming

@@ -23,7 +23,8 @@ This fixes where a tab's detected media lives and what one entry is. Today it li
 | | `pageTitle` | string | no | `document.title`, supplied by the content script. Untrusted page text: the popup renders it as text, never as markup |
 | | `status` | `'observing' \| 'ready' \| 'blocked' \| 'unsupported'` | no | Who sets each: `observing` when the worker injects a content script onto a tab with no record, `ready` on the first report, `blocked` when a page refused page level access, `unsupported` set by the worker when the tab cannot host a content script. Precedence when several extractors report: `unsupported` beats `blocked` beats `ready` beats `observing` |
 | | `lastWriter` | string | no | Id of the extractor that wrote last. Its only reader is the diagnostics view (feature 16) |
-| | `updatedAt` | number | no | Epoch milliseconds. Its only reader is the staleness display the popup shows next to the list |
+| | `updatedAt` | number | no | Epoch milliseconds. Its only reader is the staleness display the popup shows next to the list, specified in [spec 0003](../0003-popup-design-language/index.md) |
+| | `hiddenCount` | number | no | How many entries the cap dropped, not the total ever found. Set by the cap when it discards, carried through a merge, zero when nothing was dropped. It exists so the popup can say what it is not showing, which is the honesty cost of capping at 50. Its only reader is the disclosure specified in [spec 0003](../0003-popup-design-language/index.md) |
 | `MediaEntry` | `url` | string | no | Part of the identity |
 | | `container` | string | no | Part of the identity. `mp4`, `webm`, `m3u8`, … or `unknown`. Derived by the rules in `src/engine/media-rules.ts`: the URL path extension first, then the response content type, then `unknown` |
 | | `quality` | string | no | Part of the identity. Free text (`'1080p'`, `'130kbps'`), never an enum, because sites invent labels. The fallback extractor always emits `unknown`; only a site extractor sets a real label |
@@ -100,7 +101,7 @@ Tests supply an in memory implementation of the same four operations. That is th
 - Reloading the extension during development clears everything, so every reload looks like a bug until the worker re injects and the page reports again. Annoying, and it will bite repeatedly.
 - Content scripts cannot read session storage unless it is explicitly opened up. The worker being the only writer makes this a non issue, and opening it up is not needed.
 - A record that outlives its tab, after a crash, is cleaned up by the worker's start up reconciliation rather than immediately.
-- Dropping the oldest at 50 means a page that really does expose more than 50 sources loses some. Chosen deliberately: a list a person can read beats a complete one they cannot. The popup should say how many are being hidden, which is feature 4's job.
+- Dropping the oldest at 50 means a page that really does expose more than 50 sources loses some. Chosen deliberately: a list a person can read beats a complete one they cannot. The popup says how many are being hidden, from `hiddenCount`, and the disclosure's wording and token are specified in [spec 0003](../0003-popup-design-language/index.md).
 
 **Neutral**:
 - `storage.session` needs no permission of its own beyond what the extension already asks for.

@@ -15,8 +15,10 @@ Everything the extension runs at once: the popup React UI, the Manifest V3 servi
 | `src/content.ts` | Content script: YouTube player response extraction, DOM video and audio scan, the SPA URL observer |
 | `src/lib/schemas.ts` | `VideoSource` (a zod schema used for its type), `DownloadStatus`, `YouTubeMeta` |
 | `src/lib/utils.ts` | The `cn` helper, which is `clsx` plus `tailwind-merge` |
-| `src/index.css` | Tailwind v4 entry, theme tokens, the `.vortex-gradient` and `.glass` helpers |
-| `src/components/ui/` | Generated shadcn primitives |
+| `src/index.css` | Tailwind v4 entry, the colour tokens on `:root`, the `--color-*: initial` reset and the `@theme inline` mappings |
+| `src/components/ui/` | Generated shadcn primitives: `button`, `card`, `badge`, `scroll-area`, `skeleton`, `progress`, `tooltip` |
+| `src/components/` | Project compositions that are not generated: `empty-state.tsx`, `notice.tsx` |
+| `src/testing/` | The Vitest harness, the four browser API fakes, and the guards under `guards/` |
 
 ## Conventions
 
@@ -38,10 +40,13 @@ Everything the extension runs at once: the popup React UI, the Manifest V3 servi
 - The sniffer keeps at most 50 sources per tab and drops the oldest with `shift()` (`src/background.ts:63`).
 - Types are loose at the message boundary: `src/background.ts:98` and `src/background.ts:107` walk the YouTube payload as `any`, and the popup progress listener in `src/App.tsx:76` takes `any`. Tighten those with `src/lib/schemas.ts` when you are already in the code.
 - `background.js` and `content.js` must land flat in `dist/`. That comes from the `entryFileNames` rule in `vite.config.ts:22`, not from the manifest.
-- The popup shows a version string hardcoded in the footer (`src/App.tsx:283`) and the real version lives in `public/manifest.json`. Bump both.
+- The popup shows a version string hardcoded in the footer (`src/App.tsx:281`) and the real version lives in `public/manifest.json`. Bump both.
+- The shadcn CLI misreads this repo's `components.json`, because `utils` is `@/lib/utils`: it writes `import { cn } from "cn"` and adds a junk `cn` dependency to `package.json`. Repoint the import at `@/lib/utils` and revert the dependency after every `shadcn add`, or the popup fails to resolve its own `cn`.
+- The primitives in `src/components/ui/` are generated and the compositions beside them are not. `shadcn add` overwrites a primitive wholesale, so any deliberate override in one (the `progress` fill token, for instance) has to be reapplied, which is why each override carries a comment saying so.
 
 ## Related specs
 
 - [0001 Detection engine architecture](../docs/specs/0001-detection-engine-architecture/index.md): what replaces the current pipeline. Scope features A and B in `docs/scope/scope.md` are marked superseded, so read this before extending `src/background.ts` or `src/content.ts`: their logic moves into `src/engine/` (one shared engine, pure, no `chrome.*` at run time) and both runtimes become thin shells. Slice 1 (scope feature 5) is what starts that, and it rewrites both files.
+- [0003 Popup design language](../docs/specs/0003-popup-design-language/index.md): the colour tokens, type, spacing and component rules the popup is built to, plus the `src/components/ui/` guarantees. Read it before adding a colour, a primitive or a transition. The popup itself is still being rebuilt onto them in slice 1 (scope feature 5), so the language is settled while the row and state work is not.
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
