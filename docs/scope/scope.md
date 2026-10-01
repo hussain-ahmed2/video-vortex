@@ -19,7 +19,7 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 2 | Documentation and comment conventions · Alpha | Foundation | in-progress |
 | 3 | Test harness and message contract | Foundation | in-progress |
 | 4 | Popup design language | Foundation | done |
-| 5 | Walking skeleton: detect, list, download | Slice 1 | planned |
+| 5 | Walking skeleton: detect, list, download | Slice 1 | in-progress |
 | 6 | Media source and blob stream detection | Slice 2 | planned |
 | 7 | Honest handling of HLS and DASH | Slice 2 | planned |
 | 8 | YouTube extractor on the new engine | Slice 3 | planned |
@@ -109,6 +109,16 @@ Define the reworked look as a system (color, type, spacing, component states, mo
 Prove the new spine end to end on the simplest real case: a page playing a direct video file, listed in the popup and saved to disk. This is the skeleton, nothing in it is faked or stubbed.
 **Done when:** playing a direct mp4 on any page and opening the popup shows it with quality and size, downloading saves a file with the right name, the list is still there after closing the popup and after the worker is stopped, and the pure logic and the message contract are covered by tests.
 - [ ] Build it: `/develop walking skeleton: detect, list, download`
+   - [ ] The pure engine under `src/engine/`: types, messages, media rules with the content type to container map and `isDownloadable`, identity, the state port, merge with the fifty entry cap and a derived hidden count, and the six step filename rule, with tests and no browser present, satisfies AC-1, AC-4, AC-5, AC-7, AC-9, AC-10, AC-14
+   - [ ] Harness fakes for `webRequest` and `action`, so the observer, the badge and two reports arriving together have a test path instead of only a hand walk, satisfies AC-7, AC-9, AC-16
+   - [ ] The manifest gains `scripting` and loses `declarativeNetRequestWithHostAccess` and its declarative `content_scripts` entry, then the worker rewrite: the `onHeadersReceived` observer, session storage through the port, tab close cleanup, the badge, the message half and downloads, satisfies AC-1, AC-3, AC-5, AC-6, AC-11, AC-12, AC-13, AC-16, AC-17, AC-19
+   - [ ] The content script reduced to the page title and URL changes, and `src/lib/schemas.ts`, the old pipeline and the YouTube surfaces deleted, satisfies AC-8, AC-14, AC-15
+   - [ ] The popup rebuilt on spec 0003 with both state vocabularies, the three displays each under its condition, this slice's copy, non downloadable rows with no control, then the hand walk on a real page, satisfies AC-2, AC-6, AC-17, AC-18, AC-19
+- [ ] Verify it: `/check verify walking skeleton: detect, list, download`
+- [ ] Test it: `/test walking skeleton: detect, list, download`
+- [ ] Review it (fresh model): `/check review walking skeleton: detect, list, download`
+- [ ] Document it: `/document walking skeleton: detect, list, download`
+[Spec 0004](../specs/0004-walking-skeleton/index.md) · engine in `src/engine/`, adapters in `src/background.ts` and `src/content.ts`, popup in `src/App.tsx`, per tab state in `chrome.storage.session` · the narrow spine every later slice builds on
 
 ## Slice 2: catch the streams real sites use
 
