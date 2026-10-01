@@ -8,6 +8,14 @@ import { isTestFile } from './test-file-pattern'
 
 const SOURCE_EXTENSIONS = ['.ts', '.tsx']
 
+/**
+ * Extensions for a guard that reads files as plain text, such as the design token
+ * guard scanning the stylesheet where the colour tokens live. Exported so the
+ * guard names them rather than repeating the list, the way the test file pattern
+ * is shared: a second copy is how two guards drift apart.
+ */
+export const STYLE_EXTENSIONS = ['.css']
+
 /** Walks up from a directory to the one holding `package.json`. */
 export function findProjectRoot(from: string): string {
   let current = resolve(from)
@@ -21,22 +29,31 @@ export function findProjectRoot(from: string): string {
   }
 }
 
-/** Every non test source file under a directory, recursively. */
-export function collectSourceFiles(dir: string): string[] {
+/**
+ * Every source file under a directory, recursively.
+ *
+ * `extensions` is additive for a guard that reads files as text rather than as a
+ * syntax tree, such as the design token guard scanning the stylesheet where the
+ * colour tokens live. It is a parameter rather than a widened default because the
+ * purity guard parses everything it collects, and handing it a stylesheet would
+ * hand `ts.createSourceFile` a file it cannot parse.
+ */
+export function collectSourceFiles(dir: string, extensions: string[] = []): string[] {
   // A missing directory yields nothing rather than throwing, so a guard can
   // decide for itself whether "not there yet" is a failure. The purity guard
   // treats it as one; the co located guard does not.
   if (!existsSync(dir)) return []
 
+  const wanted = [...SOURCE_EXTENSIONS, ...extensions]
   const found: string[] = []
   for (const entry of readdirSync(dir)) {
     const full = join(dir, entry)
     if (statSync(full).isDirectory()) {
-      found.push(...collectSourceFiles(full))
+      found.push(...collectSourceFiles(full, extensions))
       continue
     }
     if (isTestFile(entry)) continue
-    if (!SOURCE_EXTENSIONS.some((ext) => entry.endsWith(ext))) continue
+    if (!wanted.some((ext) => entry.endsWith(ext))) continue
     if (entry.endsWith('.d.ts')) continue
     found.push(full)
   }

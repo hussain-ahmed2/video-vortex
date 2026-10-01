@@ -13,11 +13,16 @@ export const VideoSourceSchema = z.object({
 
 export type VideoSource = z.infer<typeof VideoSourceSchema>;
 
+// Spec 0003 pins this to the three values Chrome's downloads API actually reports,
+// so a fourth state cannot arrive as an untyped string and reach the popup's
+// switch. The popup's treatments for each value live in that spec's States table.
+export type DownloadState = 'in_progress' | 'complete' | 'interrupted';
+
 export interface DownloadStatus {
   downloadId: number;
   bytesReceived: number;
   totalBytes: number;
-  state: string;
+  state: DownloadState;
   url: string;
 }
 
