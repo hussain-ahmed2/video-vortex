@@ -243,7 +243,7 @@ originally written as a 10% alpha value that no boundary would have been visible
 |---|---|---|---|
 | `--background` | `oklch(0.145 0 0)` | popup background | the reference surface |
 | `--card` | `oklch(0.22 0 0)` | raised panels: empty state, notice, menus | 1.15:1 against background |
-| `--muted` | `oklch(0.28 0 0)` | scroll area, hover fill, and the skeleton fill | 1.18:1 against card, so `bg-muted/50` is a real hover |
+| `--muted` | `oklch(0.28 0 0)` | scroll area, hover fill, the skeleton fill, and the download progress track | 1.18:1 against card, so `bg-muted/50` is a real hover, and 1.36:1 against background, which is where the progress track sits. The track is a state indicator rather than a boundary, so SC 1.4.11 does not apply to it; the row separator, which is the boundary, is the 1.68:1 `--border` below |
 
 `--card` sits 1.15:1 above `--background`. That is far too little to carry a boundary, which is why
 **rows carry no fill at all**: the separator and the text carry the hierarchy. A raised panel always
@@ -336,7 +336,8 @@ makes this a standard rather than an inventory.
 | `skeleton` | new | used for the poll, one shape per row, never a spinner over a list that has rows |
 | `empty-state` | new | nothing matched on a `ready` record; `observing` is skeleton rows and never this. The caller supplies the icon, title and description |
 | `notice` | new | a `blocked` or `unsupported` page, or an `interrupted` download; `variant="destructive"` is the only coloured one. The caller supplies the icon, title and description |
-| `progress` | new | determinate from real bytes, `totalBytes <= 0` being the only indeterminate case, never a faked 30%. The fill is `--muted-foreground`, never `--primary`, so a row in flight is never brighter than the action |
+| `progress` | new | determinate from real bytes, `totalBytes === null` being the only indeterminate case, which is Chrome's minus one mapped per spec 0001's message contract, never a faked 30%. Indeterminate shows an empty track: no fill, no `aria-valuenow`, and the bar does not move. The fill is `--muted-foreground`, never `--primary`, so a row in flight is never brighter than the action |
+| `spinner` | new | the in flight affordance, taking the download control's place for the duration of a transfer, at `size-4` in `--muted-foreground`, turning only under `motion-safe:`. It carries no text of its own, so the row's label names it. It is why the progress bar need not move in the indeterminate case: the row already says it is working |
 | `tooltip` | new | supplementary only, never the accessible name for an icon only control |
 | `switch` | deferred | options page; label and current state visible without colour |
 | `select` | deferred | options page, for quality and format |
@@ -366,7 +367,7 @@ progress; they are separate and a record can be `ready` with nothing in it.
 
 | State | Treatment | Icon | Label |
 |---|---|---|---|
-| `in_progress` | the download control is replaced by determinate progress from real bytes, row height unchanged. `totalBytes <= 0` is the indeterminate case; otherwise `Math.round(bytesReceived / totalBytes * 100)` clamped to 100, and that one string is both the visible label and the progress element's accessible value, so the number a person reads and the number a screen reader hears cannot disagree | none | `Downloading 62%` |
+| `in_progress` | the download control is replaced by a spinner and determinate progress from real bytes, row height unchanged. `totalBytes === null`, Chrome's minus one mapped per spec 0001's message contract, is the indeterminate case: an empty track carrying no `aria-valuenow`, because no number is known and an invented one is worse than none, and the bar does not move. Otherwise `Math.round(bytesReceived / totalBytes * 100)` clamped to 100. In both cases the visible label is the progress element's accessible name, so what a person reads and a screen reader hears cannot disagree | none | `Downloading 62%`, or `Downloading, size unknown` when indeterminate |
 | `complete` | the control becomes a done affordance, and the text states the outcome | `Check` | `Saved` |
 | `interrupted` | `notice`, the transfer stopped and nothing was written | `TriangleAlert` | `Download interrupted` |
 
@@ -426,8 +427,12 @@ looping becomes noise.
   progress tween. The Tailwind `motion-reduce:` and `motion-safe:` variants cover CSS transitions on
   components. Neither layer substitutes for the other, because `motion-reduce:` cannot gate a
   `motion.div`.
-- **No infinite animations.** The ten second logo spin and the three second glow pulse are deleted.
-  No looping animation remains in the popup.
+- **No infinite animations.** The ten second logo spin and the three second glow pulse are deleted. No
+  looping animation remains in the popup unless it opts in through `motion-safe:`, which is what AC-8
+  permits and what the skeleton shimmer and the three loaders already do. The indeterminate progress
+  bar does not take that opt in: it shows an empty track. A moving bar in a list where several rows
+  can be downloading at once is the noise this rule exists to prevent, and the row already carries a
+  spinner where its download control was, so the activity is reported without the bar moving.
 - Durations: 100ms for a state change on an existing element, 150ms for something entering or
   leaving, and nothing over 200ms.
 - Entrances ease out, exits ease in. No bounce, no overshoot, no spring on a list. The current

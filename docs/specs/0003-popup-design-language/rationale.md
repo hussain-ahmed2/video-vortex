@@ -170,6 +170,26 @@ separate them. The popup already has the accessible version of this, with icons 
   the feature needing them lands.
 - **References**: verified against W3C, MDN, Tailwind and shadcn, because the accessibility section is a
   list of specific numbers and a wrong number in a spec is worse than no number.
+- **Indeterminate progress, added 2026-10-01**: an empty track, and the motion rule gains a sentence
+  saying the indeterminate bar does not take the `motion-safe:` opt in that AC-8 permits. This case
+  was left open here on purpose, because the conventional answer, a sweeping bar, is a loop, and
+  writing it down honestly meant either overruling the motion rule or declining its opt in. It
+  surfaced when scope feature 5 needed the value sourced and the gap had to close. Four answers were
+  weighed. An empty track is chosen because the row already carries a spinner where its download
+  control was, so the activity is reported without the bar moving, and a moving bar in a list where
+  several rows can be downloading at once is the exact noise the rule was written to stop. A sweep is
+  what a user expects and is the right answer in almost any other product; it loses here on
+  restraint, not on merit, and the rule now says so rather than leaving the next reader to reopen it.
+  A static partial fill was rejected because a user glancing at it reads a percentage off it, which
+  is a claim about progress the spec forbids, and a fixed 25% is a faked 30% with a different number.
+  Dropping the bar entirely was rejected because the row then changes shape between the two states for
+  no gain. Two things came out of deciding it that the decision itself did not settle. The track
+  turned out to carry the whole visual answer, so its token is now measured against `--background`,
+  which is where a row sits, at 1.36:1 rather than the 1.18:1 the token table recorded against card.
+  And the spinner the argument leans on was in the code and in no spec, so it now has a components row
+  of its own. On governance: the shipped popup already rendered this case as an empty track, so this
+  amendment ratifies behaviour that already exists rather than changing any of it, which is what made
+  amending an `Accepted` spec safe. Nothing rendered moves.
 
 ## Rationale
 
