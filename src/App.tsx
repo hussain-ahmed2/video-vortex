@@ -1,413 +1,598 @@
-import { useEffect, useState, useCallback } from "react";
-import { 
-  Download, 
-  Video, 
-  Globe, 
-  RefreshCw, 
-  ShieldCheck,
-  Zap,
-  CheckCircle2,
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
   AlertCircle,
+  Check,
+  Download,
+  Film,
   Loader2,
   Music,
-  Film,
-  HardDrive
+  RefreshCw,
+  Search,
+  ShieldAlert,
+  ShieldCheck,
+  TriangleAlert,
+  Zap,
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
-import { 
-  Card, 
-  CardContent 
-} from "@/components/ui/card";
+import { motion } from "motion/react";
+
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/empty-state";
+import { Notice } from "@/components/notice";
 
-import type { VideoSource, DownloadStatus, YouTubeMeta } from "./lib/schemas";
+import {
+  formatBytes,
+  formatHiddenCount,
+  formatProgressLabel,
+  formatStaleness,
+  formatStreamNote,
+  progressPercent,
+} from "./engine/format";
+import { deriveStreamState, isDownloadable, isListable, labelForStream } from "./engine/media-rules";
+import {
+  parseMessage,
+  request,
+  type DownloadMediaResponse,
+  type DownloadProgressMessage,
+  type DownloadStatus,
+  type GetTabMediaResponse,
+  type StreamAssembleResponse,
+} from "./engine/messages";
+import type { MediaEntry, TabMedia, TabStatus } from "./engine/types";
 
-const App: React.FC = () => {
-  const [videos, setVideos] = useState<VideoSource[]>([]);
-  const [pageInfo, setPageInfo] = useState({ title: "Unknown Page", url: "" });
-  const [isLoading, setIsLoading] = useState(true);
-  const [downloadStates, setDownloadStates] = useState<Record<string, DownloadStatus>>({});
-  const [ytMeta, setYtMeta] = useState<YouTubeMeta | null>(null);
+// The popup: it renders what the worker holds and sends it messages. It holds no
+// detection rules, no merge rules and no file naming rule, which is why the engine
+// modules above exist and why every value here arrives already decided.
+//
+// Four whole states, one per record status, plus the three disclosures the design
+// language asked for: the hidden count, the staleness line, and the loading hint. The
+// popup never re-reads detection data on a timer. It re-reads when the worker says
+// something changed and when the person asks, and the only interval it runs recomputes
+// one string from a timestamp it already holds.
 
-  const isYouTube = pageInfo.url.includes("youtube.com/watch") || pageInfo.url.includes("youtu.be");
+/** Rows shown as skeletons while the first report is on its way. */
+const SKELETON_ROWS = 4;
 
-  const fetchData = useCallback(() => {
-    if (typeof chrome === "undefined" || !chrome.tabs) return;
+/** How long `observing` is allowed to last before the popup offers a hint. */
+const HINT_AFTER_MS = 3000;
 
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const tab = tabs[0];
-      if (!tab?.id) return;
-      const tabId = tab.id;
+/** How often the staleness string is recomputed. Reads nothing. */
+const STALENESS_INTERVAL_MS = 1000;
 
-      // Get page info
-      chrome.tabs.sendMessage(tabId, { type: 'GET_PAGE_INFO' }, (response) => {
-        if (chrome.runtime.lastError) return;
-        if (response) setPageInfo(response);
-      });
+interface PopupState {
+  record: TabMedia | null;
+  status: TabStatus;
+  /** True while the worker has just put a content script on the page. */
+  waiting: boolean;
+  /** When the current wait for a first report began, for the loading hint. */
+  observingSince: number | null;
+  /** Keyed by url, so a row and its transfer are paired on a cold read too. */
+  transfers: Record<string, DownloadStatus>;
+  /** Set when a download call was refused, keyed by url. */
+  failures: Record<string, string>;
+  /**
+   * Streams the page has been handed to the browser, keyed by url.
+   *
+   * Separate from `transfers` because a stream has no transfer to watch. We produce the file
+   * and the browser takes it from there, so there is nothing of ours left to observe and the
+   * row can only say it was sent.
+   */
+  sent: Record<string, true>;
+}
 
-      // Check if YouTube — use content script extraction
-      const tabUrl = tab.url || '';
-      if (tabUrl.includes('youtube.com/watch') || tabUrl.includes('youtu.be')) {
-        chrome.runtime.sendMessage({ type: 'FETCH_YOUTUBE_DATA', tabId }, (response) => {
-          if (response?.success && response.videos) {
-            setVideos(response.videos);
-            setYtMeta(response.meta || null);
-          }
-          setIsLoading(false);
-        });
-      } else {
-        // Non-YouTube: get sniffed videos from background
-        chrome.runtime.sendMessage({ type: 'GET_VIDEOS', tabId }, (response) => {
-          if (response?.videos) {
-            setVideos(response.videos);
-          }
-          setIsLoading(false);
-        });
-      }
-    });
+const EMPTY_STATE: PopupState = {
+  record: null,
+  status: "observing",
+  waiting: true,
+  observingSince: null,
+  transfers: {},
+  failures: {},
+  sent: {},
+};
+
+/**
+ * What a row calls itself.
+ *
+ * A file is named by the last segment of its url, which is how a person tells one of a
+ * page's twelve files from another. A stream has no address to read, and the one it was
+ * given ends in a uuid, so it is named by the engine from its id and origin instead. Reading
+ * the minted url here would put the same label on every stream row of a page.
+ */
+function labelFor(entry: MediaEntry): string {
+  if (entry.stream) return labelForStream(entry.stream);
+
+  try {
+    const { pathname } = new URL(entry.url);
+    const segment = pathname.slice(pathname.lastIndexOf("/") + 1);
+    return segment || entry.container;
+  } catch {
+    return entry.container;
+  }
+}
+
+const App = () => {
+  const [state, setState] = useState<PopupState>(EMPTY_STATE);
+  const [now, setNow] = useState(() => Date.now());
+
+  // Which tab this popup is about, known as soon as the tab is resolved rather than when
+  // an answer comes back. It decides whether a broadcast is ours to act on, and the
+  // broadcast that ends the wait is caused by a read whose answer has not landed yet, so
+  // learning the tab from that answer is what lost it.
+  const tabIdRef = useRef<number | undefined>(undefined);
+  const readingRef = useRef(false);
+  const readAgainRef = useRef(false);
+
+  const readOnce = useCallback(async (): Promise<void> => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const tabId = tab?.id;
+    if (tabId === undefined) return;
+    tabIdRef.current = tabId;
+
+    // A rejected message means the worker was removed, reloading, or unreachable, and it
+    // is not a fact about this page. Letting it escape would be an unhandled rejection in
+    // the popup and a read that never settles, so it is caught and the popup keeps what it
+    // last knew. Refresh is the control that tries again, and the spec's copy for "we
+    // cannot tell you about this page" belongs to a page that cannot host a script, which
+    // is a different thing and would be a lie here.
+    let response: GetTabMediaResponse | undefined
+    try {
+      response = (await chrome.runtime.sendMessage(
+        request("GET_TAB_MEDIA", { tabId })
+      )) as GetTabMediaResponse | undefined;
+    } catch {
+      return;
+    }
+    if (!response) return;
+
+    setState((previous) => ({
+      ...previous,
+      record: response.record,
+      status: response.status,
+      waiting: response.needsReport,
+      observingSince: response.needsReport ? Date.now() : null,
+      // A cold read carries whatever is in flight, so reopening the popup mid download
+      // shows the progress instead of forgetting it.
+      transfers: Object.fromEntries(response.inFlight.map((item) => [item.url, item])),
+    }));
   }, []);
 
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 3000);
+  const read = useCallback(async (): Promise<void> => {
+    // A read in flight cannot be re-read, so a trigger that arrives during one is kept and
+    // honoured the moment it finishes. This is what makes a broadcast that lands mid read
+    // count: the popup's own read is what makes the content script report, so the
+    // broadcast that ends the wait arrives while that read is still unanswered, and
+    // dropping it left the popup watching a page that was already listed. It also means
+    // the last answer to land is the one from the read that saw the finished state.
+    if (readingRef.current) {
+      readAgainRef.current = true;
+      return;
+    }
+    readingRef.current = true;
+    try {
+      do {
+        readAgainRef.current = false;
+        await readOnce();
+      } while (readAgainRef.current);
+    } finally {
+      readingRef.current = false;
+    }
+  }, [readOnce]);
 
-    const messageListener = (message: any) => {
-      if (message.type === 'DOWNLOAD_PROGRESS') {
-        setDownloadStates(prev => ({
-          ...prev,
-          [message.url]: message
+  useEffect(() => {
+    // Started from a promise callback rather than inline, because the read is a message
+    // round trip: its answer, and the state it sets, arrive after this effect's body has
+    // already returned.
+    void Promise.resolve().then(read);
+  }, [read]);
+
+  useEffect(() => {
+    const onMessage = (message: unknown): void => {
+      const parsed = parseMessage(message)
+
+      if (parsed?.name === "TAB_MEDIA_UPDATED") {
+        // A broadcast naming another tab is not ours to act on.
+        if (parsed.payload.tabId === tabIdRef.current) void read();
+        return;
+      }
+
+      if (parsed?.name === "DOWNLOAD_PROGRESS") {
+        const progress: DownloadProgressMessage = parsed.payload;
+        setState((previous) => ({
+          ...previous,
+          transfers: { ...previous.transfers, [progress.url]: progress },
+          failures: omit(previous.failures, progress.url),
         }));
       }
     };
-    chrome.runtime.onMessage.addListener(messageListener);
 
-    return () => {
-      clearInterval(interval);
-      chrome.runtime.onMessage.removeListener(messageListener);
-    };
-  }, [fetchData]);
+    chrome.runtime.onMessage.addListener(onMessage);
+    return () => chrome.runtime.onMessage.removeListener(onMessage);
+  }, [read]);
 
-  const downloadVideo = (video: VideoSource) => {
-    const ext = video.mime?.includes('webm') ? 'webm' 
-              : video.mime?.includes('mp4') ? 'mp4' 
-              : video.type === 'audio' ? 'mp3' 
-              : 'mp4';
-    const sanitisedTitle = (ytMeta?.title || pageInfo.title)
-      .replace(/[^a-z0-9\s]/gi, '')
-      .trim()
-      .replace(/\s+/g, '_');
-    // The stem is guarded after sanitising, not before, because a title that is
-    // only punctuation sanitises away to nothing just as an empty title does.
-    // Without this the filename starts with the quality separator, so every
-    // untitled page produces the same file and two downloads collide.
-    const cleanTitle = sanitisedTitle || 'Unknown_Page';
-    const qualitySuffix = video.quality ? `_${video.quality}` : '';
-    const filename = `${cleanTitle}${qualitySuffix}.${ext}`;
-    
-    setDownloadStates(prev => ({
-      ...prev,
-      [video.url]: {
-        downloadId: 0,
-        bytesReceived: 0,
-        totalBytes: -1,
-        state: 'in_progress',
-        url: video.url
-      }
+  // The only timer in the popup. It recomputes one string from a timestamp already
+  // held, which is what keeps AC-6 true: no detection data is re-read on a timer.
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), STALENESS_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
+  // The loading hint is a decided wait rather than a data value, and it is derived from
+  // the tick above rather than held in state of its own: one clock, one render.
+  const hintVisible =
+    state.observingSince !== null && now - state.observingSince >= HINT_AFTER_MS;
+
+  /**
+   * Asks for a row's file, by whichever path that row takes.
+   *
+   * A file is fetched by the worker from its url. A stream cannot be: there is no address to
+   * fetch and the bytes are in the page, so the page assembles the file and the worker only
+   * names it. Two paths, two messages, and the row says which one it took by what it does
+   * afterwards rather than by asking.
+   */
+  const download = useCallback(async (entry: MediaEntry): Promise<void> => {
+    const { url } = entry;
+    const isStream = entry.stream !== undefined;
+
+    setState((previous) => ({
+      ...previous,
+      failures: omit(previous.failures, url),
+      // Cleared on a new attempt, so a row that failed once and is pressed again starts from
+      // its control rather than from the last thing that went wrong.
+      sent: omit(previous.sent, url),
     }));
 
-    chrome.runtime.sendMessage({ 
-      type: 'DOWNLOAD_VIDEO', 
-      url: video.url,
-      filename
-    });
-  };
+    let response: DownloadMediaResponse | StreamAssembleResponse | undefined
+    try {
+      response = (await chrome.runtime.sendMessage(
+        isStream ? request("STREAM_ASSEMBLE", { url }) : request("DOWNLOAD_MEDIA", { url })
+      )) as DownloadMediaResponse | StreamAssembleResponse | undefined;
+    } catch {
+      // Unreachable rather than refused, and the person still needs their row back, which
+      // is the same outcome and the same copy as a refusal.
+      response = undefined;
+    }
 
-  const videoStreams = videos.filter(v => v.type !== 'audio');
-  const audioStreams = videos.filter(v => v.type === 'audio');
+    if (response?.ok) {
+      // Not "Saved", because we never see whether it saved. The page produced the file and
+      // the browser owns it from here, so the honest claim is that it was sent.
+      if (isStream) {
+        setState((previous) => ({ ...previous, sent: { ...previous.sent, [url]: true } }));
+      }
+      return;
+    }
+
+    // The row goes back to its control, and says why. A row stuck on a spinner after
+    // a refused download is the one state a person cannot act on.
+    setState((previous) => ({
+      ...previous,
+      transfers: omit(previous.transfers, url),
+      sent: omit(previous.sent, url),
+      // A file keeps the sentence it has always shown. A stream gets the reason, because the
+      // four reasons are four different problems for the person looking at them and one of
+      // them, already assembling, is worth knowing before pressing again.
+      failures: { ...previous.failures, [url]: isStream ? failureOf(response) : "Download failed" },
+    }));
+  }, []);
+
+  // Asked here as well as in the worker, from the same engine rule, so a record written by a
+  // build from before the rule existed cannot put a row on screen that has nothing to say.
+  // A stream still collecting and an encrypted one are the two that are held back.
+  const entries = (state.record?.entries ?? []).filter(isListable);
+  const video = entries.filter((entry) => entry.kind === "video");
+  const audio = entries.filter((entry) => entry.kind === "audio");
 
   return (
-    <div className="w-[420px] min-h-[520px] max-h-[600px] bg-background text-foreground flex flex-col font-sans antialiased">
-      {/* Header */}
-      <header className="p-4 pb-3 border-b border-border bg-background/80 backdrop-blur-xl sticky top-0 z-20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-muted border border-border">
-              <Zap size={18} className="text-muted-foreground fill-muted-foreground/20" />
-            </div>
-            <div>
-              <h1 className="text-base font-black tracking-tight">
-                VIDEO VORTEX
-              </h1>
-              <div className="flex items-center gap-1.5 opacity-50">
-                <Globe size={9} />
-                <span className="text-[9px] font-bold uppercase tracking-widest truncate max-w-[160px]">
-                  {new URL(pageInfo.url || 'http://localhost').hostname}
-                </span>
-              </div>
-            </div>
+    <div className="flex min-h-[520px] max-h-[600px] w-[420px] flex-col bg-background font-sans text-foreground antialiased">
+      <header className="flex items-center justify-between gap-3 border-b border-border p-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted">
+            <Zap aria-hidden className="size-4 text-muted-foreground" />
           </div>
-          <div className="flex items-center gap-2">
-            {videos.length > 0 && (
-              <div className="px-2 py-0.5 rounded-full bg-muted border border-border">
-                <span className="text-[10px] font-bold text-muted-foreground">{videos.length}</span>
-              </div>
-            )}
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              aria-label="Rescan this page"
-              onClick={() => { setIsLoading(true); fetchData(); }}
-              className="rounded-full hover:bg-muted h-8 w-8"
-            >
-              <RefreshCw size={13} className={isLoading ? "motion-safe:animate-spin" : ""} />
-            </Button>
+          <div className="min-w-0">
+            {/* The page's own title, which is untrusted text and is rendered as text.
+                The brand only stands in until a report has named the page. */}
+            <h1 className="truncate text-sm font-semibold leading-tight">
+              {state.record?.pageTitle || "Video Vortex"}
+            </h1>
+            <p className="truncate text-xs text-subtle-foreground">
+              {hostnameOf(state.record?.pageUrl)}
+            </p>
           </div>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          {entries.length > 0 && (
+            <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+              {entries.length}
+            </span>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Refresh the list"
+            // A re-read and a re-injection, not a rescan: the contract has no message
+            // that starts detection, by design.
+            onClick={() => void read()}
+          >
+            <RefreshCw aria-hidden className="size-4" />
+          </Button>
         </div>
       </header>
 
-      {/* YouTube Meta Banner */}
-      {isYouTube && ytMeta && (
-        <div className="px-4 pt-3">
-<motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0, transition: { duration: 0.15, ease: 'easeOut' } }}
-              className="rounded-xl overflow-hidden border border-border"
-            >
-            <div className="relative h-24 bg-muted">
-              <img 
-                src={ytMeta.thumbnail} 
-                className="w-full h-full object-cover opacity-40"
-                alt=""
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-background via-background/60 to-transparent" />
-              <div className="absolute bottom-0 left-0 right-0 p-3">
-                <h2 className="text-[11px] font-bold text-foreground leading-tight line-clamp-2 mb-1">
-                  {ytMeta.title}
-                </h2>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] text-muted-foreground font-medium">{ytMeta.channelName}</span>
-                  <span className="text-[9px] text-subtle-foreground">•</span>
-                  <span className="text-[9px] text-subtle-foreground font-mono">{ytMeta.duration}</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <main className="flex-1 p-4 pt-3 flex flex-col overflow-hidden">
-        {isLoading ? (
-          <div className="flex-1 flex flex-col items-center justify-center gap-3">
-            <Loader2 size={24} className="text-muted-foreground motion-safe:animate-spin" />
-            <p className="text-[11px] text-subtle-foreground font-medium">
-              {isYouTube ? 'Extracting YouTube formats...' : 'Scanning for media...'}
-            </p>
-          </div>
+      <main className="flex min-h-0 flex-1 flex-col p-3">
+        {state.status === "unsupported" ? (
+          <Notice
+            icon={TriangleAlert}
+            title="This page cannot be watched"
+            description="Browser and store pages cannot be read. Open a normal web page and try again."
+          />
+        ) : state.status === "blocked" ? (
+          <Notice
+            icon={ShieldAlert}
+            title="This page blocks access"
+            description="The page refused to share what it is playing."
+          />
+        ) : state.status === "observing" ? (
+          <Observing hintVisible={hintVisible} />
+        ) : entries.length === 0 ? (
+          <EmptyState
+            icon={Search}
+            title="No media found on this page"
+            // The second sentence used to say that a video built inside the browser cannot
+            // be seen from outside the page. That was true when this extension only watched
+            // the network, and this slice made it false, so it is gone rather than left
+            // standing as a claim the extension no longer believes. The case it described is
+            // now covered by the observing hint, which is shown when a page is still being
+            // watched, and by `blocked`, which names a page that refused us.
+            description="Play something and it will appear here. Media already playing when the popup was opened is only seen after the page reloads."
+          />
         ) : (
-          <ScrollArea className="flex-1 pr-2">
-            <div className="flex flex-col gap-3 pb-2">
-              <AnimatePresence mode="popLayout">
-                {videos.length > 0 ? (
-                  <>
-                    {/* Video Streams */}
-                    {videoStreams.length > 0 && (
-                      <div>
-                        <p className="text-[9px] font-bold text-subtle-foreground uppercase tracking-widest mb-2 px-1 flex items-center gap-1.5">
-                          <Film size={10} /> Video ({videoStreams.length})
-                        </p>
-                        <div className="flex flex-col gap-1.5">
-                          {videoStreams.map((video, idx) => (
-                            <StreamCard 
-                              key={`v-${idx}`} 
-                              video={video} 
-                              idx={idx} 
-                              downloadState={downloadStates[video.url]}
-                              onDownload={downloadVideo}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="flex flex-col">
+              {video.length > 0 && (
+                <EntryList
+                  kind="video"
+                  entries={video}
+                  transfers={state.transfers}
+                  failures={state.failures}
+                  sent={state.sent}
+                  onDownload={download}
+                />
+              )}
+              {audio.length > 0 && (
+                <EntryList
+                  kind="audio"
+                  entries={audio}
+                  transfers={state.transfers}
+                  failures={state.failures}
+                  sent={state.sent}
+                  onDownload={download}
+                />
+              )}
 
-                    {/* Audio Streams */}
-                    {audioStreams.length > 0 && (
-                      <div className="mt-1">
-                        <p className="text-[9px] font-bold text-subtle-foreground uppercase tracking-widest mb-2 px-1 flex items-center gap-1.5">
-                          <Music size={10} /> Audio ({audioStreams.length})
-                        </p>
-                        <div className="flex flex-col gap-1.5">
-                          {audioStreams.map((video, idx) => (
-                            <StreamCard 
-                              key={`a-${idx}`} 
-                              video={video} 
-                              idx={idx} 
-                              downloadState={downloadStates[video.url]}
-                              onDownload={downloadVideo}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <div className="py-16 flex flex-col items-center justify-center gap-4">
-                    <Video size={40} className="text-muted" />
-                    <div className="text-center space-y-1">
-                      <p className="text-xs font-bold text-muted-foreground">No media detected</p>
-                      <p className="text-[10px] text-subtle-foreground max-w-[200px] leading-relaxed">
-                        {isYouTube 
-                          ? 'Could not extract video data. Try refreshing the YouTube page first.'
-                          : 'Play a video on the page and we\'ll catch the stream.'}
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </AnimatePresence>
+              {/* The three disclosures, each shown only under its stated condition. */}
+              <div className="flex items-center justify-between gap-3 pt-2 text-xs text-subtle-foreground">
+                <span>
+                  {state.record && state.record.hiddenCount > 0
+                    ? formatHiddenCount(entries.length, state.record.hiddenCount)
+                    : ""}
+                </span>
+                <span>{state.record ? formatStaleness(state.record.updatedAt, now) : ""}</span>
+              </div>
             </div>
           </ScrollArea>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="px-4 py-3 border-t border-border bg-background/80 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ShieldCheck size={11} className="text-muted-foreground" />
-          <span className="text-[9px] font-bold text-subtle-foreground uppercase tracking-widest">Secure Downloader</span>
-        </div>
-        <div className="px-2 py-0.5 rounded-full bg-muted border border-border">
-           <span className="text-[9px] font-bold text-subtle-foreground">v1.1.0</span>
-        </div>
+      <footer className="flex items-center gap-2 border-t border-border p-3 text-xs text-subtle-foreground">
+        <ShieldCheck aria-hidden className="size-3.5" />
+        <span>Nothing you see here leaves your browser.</span>
       </footer>
     </div>
   );
 };
 
-// ─── Stream Card Component ────────────────────────────────────────────────
-interface StreamCardProps {
-  video: VideoSource;
-  idx: number;
-  downloadState?: DownloadStatus;
-  onDownload: (video: VideoSource) => void;
+function omit<T>(source: Record<string, T>, key: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(source).filter(([name]) => name !== key));
 }
 
-const StreamCard: React.FC<StreamCardProps> = ({ video, idx, downloadState, onDownload }) => {
-  const isAudio = video.type === 'audio';
+/**
+ * What a stream's refusal says on its row.
+ *
+ * Four reasons, and three of them are situations the worker already has a sentence for on a
+ * file, so those are reused rather than a second set of words invented for streams. Anything
+ * unrecognised falls through to the one generic sentence rather than printing a reason code
+ * at somebody.
+ */
+function failureOf(
+  response: DownloadMediaResponse | StreamAssembleResponse | undefined
+): string {
+  const reason = response && "error" in response ? response.error : undefined;
+  if (typeof reason !== "string") return "Download failed";
 
-  // Spec 0003: `totalBytes <= 0` is the only indeterminate case, and a known total
-  // renders `Math.round(bytesReceived / totalBytes * 100)` clamped to 100. Both halves
-  // were missing. `totalBytes` is the declared size while `bytesReceived` counts the
-  // whole body, so a redirect or a resumed transfer reports more than promised and the
-  // bar was free to run past its own track. `null` here means indeterminate, not zero,
-  // so the two cases cannot be confused.
-  const downloadTotal = downloadState?.totalBytes ?? 0;
-  const downloadPercent = downloadTotal > 0
-    ? Math.min(100, Math.max(0, Math.round(((downloadState?.bytesReceived ?? 0) / downloadTotal) * 100)))
-    : null;
-  
+  switch (reason) {
+    case "already_running":
+      return "One download is already being assembled";
+    case "no_bytes":
+      return "There is nothing to save yet";
+    case "not_listed":
+      return "That file is no longer listed for this page";
+    case "page_refused":
+      return "The page would not hand the file over";
+    default:
+      return reason;
+  }
+}
+
+function hostnameOf(pageUrl: string | undefined): string {
+  if (!pageUrl) return "";
+  try {
+    return new URL(pageUrl).hostname;
+  } catch {
+    return "";
+  }
+}
+
+/** The watch is running and nothing has arrived yet. Never the empty state. */
+function Observing({ hintVisible }: { hintVisible: boolean }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      // An explicit tween on each target, rather than a bare `transition={{ delay }}`.
-      // Motion treats `delay` as orchestration only, so a transition carrying nothing
-      // else is reported as undefined and `getDefaultTransition` steps in, which routes
-      // `y` and `scale` to springs at damping ratios 0.559 and 0.640. Both overshoot, on
-      // a list whose spec rule is "no bounce, no overshoot, no spring on a list". The
-      // stagger delay lives inside the entrance transition because a per-target
-      // transition replaces the component level one rather than adding to it.
-      animate={{ opacity: 1, y: 0, transition: { duration: 0.15, ease: 'easeOut', delay: idx * 0.03 } }}
-      exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.15, ease: 'easeIn' } }}
-    >
-      <Card className="transition-colors group overflow-hidden shadow-none hover:ring-ring/50">
-        <CardContent className="p-0">
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            {/* Type Icon */}
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-              isAudio 
-                ? 'bg-muted border border-border'
-                : 'bg-muted border border-border'
-            }`}>
-              {isAudio 
-                ? <Music size={16} className="text-muted-foreground" />
-                : <Film size={16} className="text-muted-foreground" />
-              }
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0 flex items-center gap-2">
-              {/* Quality */}
-              {video.quality && (
-                <Badge variant="outline" className={`shrink-0 text-[10px] h-5 px-2 font-bold ${
-                  isAudio
-                    ? 'bg-muted/50 text-muted-foreground'
-                    : 'bg-muted/50 text-muted-foreground'
-                }`}>
-                  {video.quality}
-                </Badge>
-              )}
-              {/* Mime */}
-              <span className="text-[9px] text-subtle-foreground font-mono truncate">
-                {video.mime || video.type}
-              </span>
-              {/* Size */}
-              {video.size && (
-                <div className="flex items-center gap-1 shrink-0 ml-auto">
-                  <HardDrive size={9} className="text-subtle-foreground" />
-                  <span className="text-[9px] text-subtle-foreground font-medium">{video.size}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Download Button */}
-            {downloadState ? (
-              <div className="shrink-0 w-9 h-9 flex items-center justify-center">
-                {downloadState.state === 'complete' ? (
-                  <CheckCircle2 size={16} className="text-muted-foreground" />
-                ) : downloadState.state === 'interrupted' ? (
-                  <AlertCircle size={16} className="text-destructive" />
-                ) : (
-                  <Loader2 size={16} className="text-muted-foreground motion-safe:animate-spin" />
-                )}
-              </div>
-            ) : (
-              <Button 
-                size="icon"
-                aria-label={`Download ${isAudio ? 'audio' : 'video'}${video.quality ? ` ${video.quality}` : ''}`}
-                className="shrink-0 h-8 w-8 rounded-lg border-none shadow-lg"
-                onClick={() => onDownload(video)}
-              >
-                <Download size={14} />
-              </Button>
-            )}
-          </div>
-
-          {/* Progress Bar */}
-          {downloadState && downloadState.state === 'in_progress' && (
-            <div
-              role="progressbar"
-              aria-valuenow={downloadPercent ?? undefined}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              className="h-0.5 w-full bg-muted"
-            >
-              <motion.div
-                className="h-full bg-muted-foreground"
-                initial={{ width: 0 }}
-                // An unknown total renders no fill rather than the fixed 30% this used
-                // to show, which the spec calls a faked number: a transfer of unknown
-                // length looked 30% done and never moved. The visible "size unknown"
-                // wording is still owed by the row rebuild in slice 1.
-                animate={{ width: `${downloadPercent ?? 0}%` }}
-                transition={{ duration: 0.15, ease: "easeOut" }}
-              />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-    </motion.div>
+    <div className="flex flex-1 flex-col gap-2">
+      <p className="text-xs font-medium text-muted-foreground">Watching this page</p>
+      {Array.from({ length: SKELETON_ROWS }, (_unused, index) => (
+        <div key={index} className="flex min-h-10 items-center gap-3 border-b border-border px-3">
+          <Skeleton className="size-4 shrink-0" />
+          <Skeleton className="h-3 flex-1" />
+          <Skeleton className="h-3 w-16 shrink-0" />
+        </div>
+      ))}
+      {hintVisible && (
+        <p className="pt-1 text-xs text-muted-foreground">
+          Still watching. Media already on the page is only seen when it is requested, so
+          reload the page if it played before you opened this.
+        </p>
+      )}
+    </div>
   );
-};
+}
+
+interface EntryListProps {
+  kind: "video" | "audio";
+  entries: MediaEntry[];
+  transfers: Record<string, DownloadStatus>;
+  failures: Record<string, string>;
+  sent: Record<string, true>;
+  onDownload: (entry: MediaEntry) => void;
+}
+
+/** One of the two lists, headed by what it holds so the split is never colour alone. */
+function EntryList({ kind, entries, transfers, failures, sent, onDownload }: EntryListProps) {
+  const Icon = kind === "audio" ? Music : Film;
+
+  return (
+    <section aria-label={kind === "audio" ? "Audio" : "Video"}>
+      <h2 className="flex items-center gap-2 px-3 py-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <Icon aria-hidden className="size-3.5" />
+        {kind === "audio" ? "Audio" : "Video"} ({entries.length})
+      </h2>
+      <ul>
+        {entries.map((entry) => (
+          <MediaRow
+            key={`${entry.url}|${entry.container}|${entry.quality}`}
+            entry={entry}
+            transfer={transfers[entry.url]}
+            failure={failures[entry.url]}
+            sent={sent[entry.url] === true}
+            onDownload={onDownload}
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+interface MediaRowProps {
+  entry: MediaEntry;
+  transfer: DownloadStatus | undefined;
+  failure: string | undefined;
+  sent: boolean;
+  onDownload: (entry: MediaEntry) => void;
+}
+
+function MediaRow({ entry, transfer, failure, sent, onDownload }: MediaRowProps) {
+  const kind = entry.kind;
+  const TypeIcon = kind === "audio" ? Music : Film;
+  const label = labelFor(entry);
+  // The entry, not its container. A live broadcast and a stream the page capped are both
+  // `webm` and both perfectly savable containers, and neither can be handed over as a file.
+  const savable = isDownloadable(entry);
+  const note = entry.stream ? formatStreamNote(deriveStreamState(entry.stream)) : null;
+
+  const inProgress = transfer?.state === "in_progress";
+  const complete = transfer?.state === "complete";
+  const interrupted = transfer?.state === "interrupted";
+  const percent = inProgress && transfer ? progressPercent(transfer.bytesReceived, transfer.totalBytes) : null;
+
+  return (
+    <motion.li
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0, transition: { duration: 0.15, ease: "easeOut" } }}
+      exit={{ opacity: 0, transition: { duration: 0.15, ease: "easeIn" } }}
+      className="flex min-h-10 items-center gap-3 border-b border-border px-3 text-foreground"
+    >
+      <TypeIcon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{label}</p>
+        <p className="truncate text-xs text-subtle-foreground">
+          {/* The word is here as well as on the icon, so the two lists are told apart
+              without relying on either colour or a picture. */}
+          {kind === "audio" ? "Audio" : "Video"} · {entry.container}
+          {/* No page supplied a quality for a stream, so the line would otherwise print the
+              word "unknown" on every row and tell a person nothing. */}
+          {entry.stream ? "" : ` · ${entry.quality}`} · {formatBytes(entry.sizeBytes)}
+        </p>
+        {/* Why there is no control. A row with nothing to press and nothing to say reads as
+            the extension being broken rather than as an honest answer. */}
+        {note && <p className="text-xs text-muted-foreground">{note}</p>}
+      </div>
+
+      {inProgress && transfer ? (
+        <div className="flex shrink-0 items-center gap-2">
+          {/* The spinner takes the download control's place. It is why the bar need
+              not move when the total is unknown: the row already says it is working. */}
+          <Loader2
+            aria-hidden
+            className="size-4 shrink-0 text-muted-foreground motion-safe:animate-spin"
+          />
+          <Progress
+            value={percent ?? undefined}
+            aria-label={formatProgressLabel(transfer)}
+            className="w-16"
+          />
+          <span className="sr-only">{formatProgressLabel(transfer)}</span>
+        </div>
+      ) : null}
+
+      {/* A row whose container is a manifest carries no control at all, and neither does a
+          live or partial stream. Offering one would hand someone a playlist file that will
+          not play, or a download of an endless stream that would never finish. */}
+      {savable && !inProgress && !complete && !interrupted && !sent ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={`Download ${kind}, ${label}, ${formatBytes(entry.sizeBytes)}`}
+          onClick={() => onDownload(entry)}
+        >
+          <Download aria-hidden className="size-4" />
+        </Button>
+      ) : null}
+
+      {/* Not "Saved". The page produced the file and the browser owns it from here, so
+          there is nothing of ours left to watch and the honest claim is that it was sent. */}
+      {sent ? (
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <Check aria-hidden className="size-4" />
+          Sent to your downloads
+        </span>
+      ) : null}
+
+      {complete ? (
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <Check aria-hidden className="size-4" />
+          Saved
+        </span>
+      ) : null}
+
+      {interrupted || failure ? (
+        <span className="flex shrink-0 items-center gap-1.5 text-xs text-destructive">
+          <AlertCircle aria-hidden className="size-4" />
+          {failure ?? "Download interrupted"}
+        </span>
+      ) : null}
+    </motion.li>
+  );
+}
 
 export default App;

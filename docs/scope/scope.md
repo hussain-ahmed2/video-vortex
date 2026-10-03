@@ -20,8 +20,8 @@ _These are recommendations to keep your build orderly, not requirements. Skip an
 | 3 | Test harness and message contract | Foundation | in-progress |
 | 4 | Popup design language | Foundation | done |
 | 5 | Walking skeleton: detect, list, download | Slice 1 | in-progress |
-| 6 | Media source and blob stream detection | Slice 2 | planned |
-| 7 | Honest handling of HLS and DASH | Slice 2 | planned |
+| 6 | Media source and blob stream detection | Slice 2 | in-progress |
+| 7 | Honest handling of HLS and DASH | Slice 2 | in-progress |
 | 8 | YouTube extractor on the new engine | Slice 3 | planned |
 | 9 | Subtitles and thumbnail download | Slice 3 | planned |
 | 10 | Merge audio and video into one file | Slice 4 | planned |
@@ -60,12 +60,12 @@ Spec 0001 (an umbrella: `index.md` plus four children, one per decision) · code
 ### 2. Documentation and comment conventions · Alpha
 Set the comment rule (explain why, not what) and the module header convention, then fix the docs that describe the old design, so every module written from here explains itself and the README tells the truth.
 **Done when:** root `AGENTS.md` states the comment rule, each engine module carries a short header saying what it owns and why, and the README matches the real architecture.
-- [ ] Build it: `/develop documentation and comment conventions`
+- [x] Build it: `/develop documentation and comment conventions` (all four milestones done on repo evidence. The README was the last one standing and had drifted a long way: it still described the pre rebuild pipeline, which two features since replaced)
    - [x] Comment rule and module header convention recorded in root `AGENTS.md`, alongside the engine purity rule from spec 0001
    - [x] Docs describing the old design corrected: the header rewrite gotcha in `src/AGENTS.md`, and the README rewritten to say what works and what does not
-   - [ ] Module headers applied to the engine modules, which do not exist until slice 1 builds them (scope feature 5)
+   - [x] Module headers applied to the engine modules, which did not exist until slice 1 built them (all nine carry one, checked on the repo)
+   - [x] The README brought back to the truth after the rebuild, which it had drifted from: it still claimed most real sites show nothing, that the list forgets because the worker holds it in memory, that the YouTube extractor works, and that there were three runtimes. Every one of those stopped being true when features 5 and 6 landed. It now says what is built, what is only tested and not yet proven against real sites, and what is still missing
 - [ ] Verify it: `/check verify documentation and comment conventions`
-Spec 0001 (the architecture these docs describe) · no code, documentation only
 
 ### 3. Test harness and message contract
 Stand up the runner and the fakes for the extension APIs, and pin the message contract, so every later slice arrives with tests instead of getting a retrofit at the end.
@@ -108,29 +108,51 @@ Define the reworked look as a system (color, type, spacing, component states, mo
 ### 5. Walking skeleton: detect, list, download
 Prove the new spine end to end on the simplest real case: a page playing a direct video file, listed in the popup and saved to disk. This is the skeleton, nothing in it is faked or stubbed.
 **Done when:** playing a direct mp4 on any page and opening the popup shows it with quality and size, downloading saves a file with the right name, the list is still there after closing the popup and after the worker is stopped, and the pure logic and the message contract are covered by tests.
-- [ ] Build it: `/develop walking skeleton: detect, list, download`
-   - [ ] The pure engine under `src/engine/`: types, messages, media rules with the content type to container map and `isDownloadable`, identity, the state port, merge with the fifty entry cap and a derived hidden count, and the six step filename rule, with tests and no browser present, satisfies AC-1, AC-4, AC-5, AC-7, AC-9, AC-10, AC-14
-   - [ ] Harness fakes for `webRequest` and `action`, so the observer, the badge and two reports arriving together have a test path instead of only a hand walk, satisfies AC-7, AC-9, AC-16
-   - [ ] The manifest gains `scripting` and loses `declarativeNetRequestWithHostAccess` and its declarative `content_scripts` entry, then the worker rewrite: the `onHeadersReceived` observer, session storage through the port, tab close cleanup, the badge, the message half and downloads, satisfies AC-1, AC-3, AC-5, AC-6, AC-11, AC-12, AC-13, AC-16, AC-17, AC-19
-   - [ ] The content script reduced to the page title and URL changes, and `src/lib/schemas.ts`, the old pipeline and the YouTube surfaces deleted, satisfies AC-8, AC-14, AC-15
-   - [ ] The popup rebuilt on spec 0003 with both state vocabularies, the three displays each under its condition, this slice's copy, non downloadable rows with no control, then the hand walk on a real page, satisfies AC-2, AC-6, AC-17, AC-18, AC-19
-- [ ] Verify it: `/check verify walking skeleton: detect, list, download`
-- [ ] Test it: `/test walking skeleton: detect, list, download`
-- [ ] Review it (fresh model): `/check review walking skeleton: detect, list, download`
+- [x] Build it: `/develop walking skeleton: detect, list, download` (every milestone ticked on repo evidence: the engine, the fakes, the manifest, the content script reduction and the popup rebuild, each with its tests)
+   - [x] The pure engine under `src/engine/`: types, messages, media rules with the content type to container map and `isDownloadable`, identity, the state port, merge with the fifty entry cap and a derived hidden count, and the six step filename rule, with tests and no browser present, satisfies AC-1, AC-4, AC-5, AC-7, AC-9, AC-10, AC-14
+   - [x] Harness fakes for `webRequest` and `action`, so the observer, the badge and two reports arriving together have a test path instead of only a hand walk, satisfies AC-7, AC-9, AC-16
+   - [x] The manifest gains `scripting` and loses `declarativeNetRequestWithHostAccess` and its declarative `content_scripts` entry, then the worker rewrite: the `onHeadersReceived` observer, session storage through the port, tab close cleanup, the badge, the message half and downloads, satisfies AC-1, AC-3, AC-5, AC-6, AC-11, AC-12, AC-13, AC-16, AC-17, AC-19
+   - [x] The content script reduced to the page title and URL changes, and `src/lib/schemas.ts`, the old pipeline and the YouTube surfaces deleted, satisfies AC-8, AC-14, AC-15
+   - [x] The popup rebuilt on spec 0003 with both state vocabularies, the three displays each under its condition, this slice's copy, non downloadable rows with no control, then the hand walk on a real page, satisfies AC-2, AC-6, AC-17, AC-18, AC-19
+- [x] Verify it: `/check verify walking skeleton: detect, list, download` (ran 2026-10-02 in three passes, verdict PASS. Five defects found and fixed, each proven fixed in the extension, the last one a popup race that had a first open hanging three times in ten. Twenty behaviours pass with evidence from a real Chromium, and every criterion from AC-1 to AC-19 is met. Two criteria describe something the runtime does not do: AC-18's limitation is not real for a request that arrives after the worker stops, and AC-17's three second hint cannot appear now that the popup re-reads on a broadcast. Both are written up for `/architect` in the feature's verify.md. The one step still open is the spoken half of the keyboard walk, which wants a person and a screen reader)
+- [x] Test it: `/test walking skeleton: detect, list, download` (534 tests across 28 files, green, and every acceptance criterion named by at least one test. The suite pins the six step file name, the fifty entry cap with its derived hidden count, the per tab serialisation, the message contract in both directions, the manifest that is listed but not savable, and the popup's read path end to end. `/check verify` found four defects the suite had encoded as correct; each now has a test that failed before its fix. A fifth, the popup losing the broadcast that ends its wait, was found the same way and is pinned three times over: the ordering that caused it, a burst of changes during one read, and a Refresh pressed mid read)
+- [x] Review it (fresh model): `/check review walking skeleton: detect, list, download` (ran 2026-10-03, verdict Changes requested: three majors, all in error handling around messages, plus one comment that states a platform limitation the runtime contradicts. Reviewer shared the author model, so the cross model guarantee was not available. Findings in `docs/reviews/2026-10-03-main.md`)
 - [ ] Document it: `/document walking skeleton: detect, list, download`
 [Spec 0004](../specs/0004-walking-skeleton/index.md) · engine in `src/engine/`, adapters in `src/background.ts` and `src/content.ts`, popup in `src/App.tsx`, per tab state in `chrome.storage.session` · the narrow spine every later slice builds on
 
 ## Slice 2: catch the streams real sites use
 
-### 6. Media source and blob stream detection · needs a decision
+### 6. Media source and blob stream detection
 Catch the streams most real sites actually use, which the browser assembles from many small requests and never exposes as a video file. These sites show nothing at all today.
 **Done when:** on at least three real sites that stream through MediaSource (the browser media pipeline), the popup lists the stream with a working download, and the page world hook is covered by tests.
-- [ ] Design it (spec): `/architect media source and blob stream detection`
+- [x] Design it (spec): `/architect media source and blob stream detection`
+- [ ] Build it: `/develop media source and blob stream detection`
+   - [ ] The load bearing assumption proven before anything is built on it: on a real page, with a real gesture, a hook in the page's world starts a download from bytes it holds and the file plays, satisfies AC-10, AC-19 (the hook it needs is built and covered by tests, and `probe/stream-download.html` loads the real `dist/hook.js` and asks it directly, so the proof is one press in a browser. Needs a person, so nothing is ticked)
+   - [x] The engine owns the verdict rather than the hook: raw stream signals on the draft and entry schemas, the percent encoded synthetic url, identity unchanged, a pure `deriveStreamState`, a pure `dropUnknownStreams`, and the contract version bumped because two payload shapes change, satisfies AC-3, AC-9, AC-15, AC-21
+   - [x] The sixth message and the hook's build: `STREAM_ASSEMBLE` under one schema across both hops, the worker's first use of `chrome.tabs.sendMessage`, a third Vite config and npm script with its flat output name fixed, and harness fakes for MediaSource, SourceBuffer, blob addresses and message delivery, satisfies AC-1, AC-2, AC-4, AC-17, AC-18
+   - [x] Relay, worker and a listed row: the token and the page url stamp that also answers single page app navigation, the injection order and snapshot acceptance, and the row shape with an entry based savable check, a label derived from stream id and origin, and no quality line, satisfies AC-1, AC-2, AC-3, AC-5, AC-8, AC-15, AC-16 (`isListable` was added while building the row: the rule that a collecting or encrypted stream gets no row existed in the spec and in the state table but in no code, so a record could have held a row the list showed with nothing to say. The worker and the popup both ask it, one rule and two readers. One test now drives all three runtimes together, and it found that a content script's `onMessage` also hears what the popup sends, so the relay checks `sender.tab` before acting)
+   - [ ] Both origins saving, then the states and the real sites: the `blob:` path copying nothing, MediaSource accumulation one id per `MediaSource`, live and partial and sent and blocked copy, the reload drop, and three real MediaSource sites, satisfies AC-1, AC-5, AC-6, AC-7, AC-9, AC-10, AC-11, AC-12, AC-13, AC-14, AC-19, AC-20, AC-21 (both origins, the accumulation, live, the three partial states, the sent state, `blocked` and the reload drop are all in, each with the sentence its state owes. What is left is the three real MediaSource sites, which need names chosen before anyone tries them, since the spec itself calls the hook's per site behaviour the largest unknown in the slice)
+- [ ] Verify it: `/check verify media source and blob stream detection`
+- [ ] Test it: `/test media source and blob stream detection`
+- [ ] Review it (fresh model): `/check review media source and blob stream detection`
+- [ ] Document it: `/document media source and blob stream detection`
+[Spec 0005](../specs/0005-media-source-and-blob-stream-detection/index.md) · engine in `src/engine/`, the page world hook in `src/hook.ts`, page media fakes in `src/testing/page-media.ts`, browser fakes in `src/testing/chrome/`, and the gesture proof page in `probe/stream-download.html`
 
-### 7. Honest handling of HLS and DASH · needs a decision
+### 7. Honest handling of HLS and DASH
 Stop offering a playlist or manifest file as if it were a video, and either assemble the real segments or hide the stream and say why.
 **Done when:** an HLS or DASH stream either downloads as a playable file or is clearly labelled as a stream that cannot be saved, never as a video that turns out to be a text playlist.
-- [ ] Design it (spec): `/architect honest handling of HLS and DASH`
+- [x] Design it (spec): `/architect honest handling of HLS and DASH`
+- [ ] Build it: `/develop honest handling of HLS and DASH`
+   - [ ] The probe run first, and its answer recorded in the spec's follow-up, satisfies AC-1
+   - [ ] The honest labelling end to end: the playlist block and the derived state in the engine, the worker asking the page to read, the hand written parser for the supported subset, and every labelled state rendered with no control, satisfies AC-2, AC-4, AC-5, AC-9, AC-10, AC-12
+   - [ ] Assembling, gated on the probe: bounded fetch of the chosen variant, the join, and the cap and in progress flag reused from spec 0005, satisfies AC-1, AC-3, AC-8, AC-11
+   - [ ] The failures, each with its own sentence and never a partial file: a segment that failed, the page cap reached, a second press while one is running, a manifest the page cannot read, satisfies AC-6, AC-7, AC-8, AC-10
+   - [ ] Real sites: one video on demand fragmented MP4, one live, one encrypted, one MPEG-DASH, satisfies AC-1, AC-2, AC-9
+- [ ] Verify it: `/check verify honest handling of HLS and DASH`
+- [ ] Test it: `/test honest handling of HLS and DASH`
+- [ ] Review it (fresh model): `/check review honest handling of HLS and DASH`
+- [ ] Document it: `/document honest handling of HLS and DASH`
+[Spec 0006](../specs/0006-honest-hls-and-dash.md) · reuses the page hook from spec 0005, the engine in `src/engine/`, and a playlist reader beside it
 
 ## Slice 3: YouTube done properly
 

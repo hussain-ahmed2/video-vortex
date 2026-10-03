@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Video Vortex: page download proof</title>
+    <style>
+      body {
+        font: 14px/1.5 system-ui, sans-serif;
+        margin: 0;
+        padding: 24px;
+        background: #101014;
+        color: #e8e8ea;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      p {
+        color: #a0a0aa;
+        margin: 0 0 16px;
+        max-width: 60ch;
+      }
+      button {
+        font: inherit;
+        padding: 8px 14px;
+        margin: 0 8px 12px 0;
+        border: 1px solid #3a3a44;
+        border-radius: 6px;
+        background: #1c1c22;
+        color: #e8e8ea;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      video {
+        width: 320px;
+        border-radius: 6px;
+        background: #000;
+        margin-right: 12px;
+      }
+      pre {
+        background: #17171c;
+        border: 1px solid #26262e;
+        border-radius: 6px;
+        padding: 12px;
+        max-height: 40vh;
+        overflow: auto;
+        font-size: 12px;
+      }
+      .row {
+        display: flex;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Can a page download a file it holds, with no gesture in the page?</h1>
+    <p>
+      This is the one assumption the whole stream slice rests on: that a script in the page's own
+      world can hand bytes to the browser's downloads with no click inside this page. The
+      extension's own proof runs through the popup, which cannot be scripted. This page loads the
+      real <code>dist/hook.js</code> and asks it directly, so the answer takes one press.
+    </p>
+    <p>
+      Press <b>Build the streams</b> first. It records four seconds of a canvas locally with
+      <code>MediaRecorder</code>, so the bytes are real and playable with no network at all, then
+      feeds them through a <code>MediaSource</code> in three chunks and also hands the finished blob
+      to a second player. Neither of the two save buttons does anything until that has happened.
+    </p>
+
+    <div class="row">
+      <video id="mse-player" controls muted></video>
+      <video id="blob-player" controls muted></video>
+    </div>
+
+    <div class="row">
+      <button id="build">Build the streams</button>
+      <button id="save-mse" disabled>Save the MediaSource stream</button>
+      <button id="save-blob" disabled>Save the blob video</button>
+    </div>
+
+    <pre id="log">waiting for the build button</pre>
+
+    <script src="../dist/hook.js"></script>
+    <script>
+      // The smallest thing that can play the part of the content script this page cannot: mint a
+      // token, tell the hook it is installed, and relay its reports into this log. In the extension
+      // that half is `src/content.ts`, and the only difference that matters here is that these two
+      // save buttons are the gesture the browser sees.
+      //
+      // Nothing here is shipped. It exists because this one question cannot be answered by a test:
+      // whether Chrome starts a download depends on the browser, not on jsdom.
+      const TOKEN = 'probe-token-1'
+      const log = document.getElementById('log')
+      const saveMse = document.getElementById('save-mse')
+      const saveBlob = document.getElementById('save-blob')
+      const streams = new Map()
+
+      function say(line) {
+        log.textContent = `${line}\n${log.textContent}`
+      }
+
+      function install() {
+        window.postMessage(
+          {
+            source: 'video-vortex',
+            type: 'install',
+            token: TOKEN,
+            pageUrl: location.href,
+          },
+          '*'
+        )
+      }
+
+      window.addEventListener('message', (event) => {
+        const data = event.data
+        if (!data || data.source !== 'video-vortex') return
+
+        if (data.type === 'streams') {
+          streams.clear()
+          for (const stream of data.streams) streams.set(stream.streamId, stream)
+          say(
+            `report: ${JSON.stringify(
+              data.streams.map((s) => ({
+                id: s.streamId,
+                origin: s.origin,
+                bytes: s.bytes,
+                bufferedBytes: s.bufferedBytes,
+                name: s.mediaElementName,
+              }))
+            )}`
+          )
+          for (const stream of data.streams) {
+            if (stream.origin === 'mse') saveMse.disabled = stream.bufferedBytes === 0
+            if (stream.origin === 'blob') saveBlob.disabled = stream.bytes === 0
+          }
+          return
+        }
+
+        if (data.type === 'assembled') say(`answer: ${JSON.stringify(data)}`)
+      })
+
+      function assemble(streamId, filename) {
+        window.postMessage(
+          { source: 'video-vortex', type: 'assemble', token: TOKEN, streamId, filename },
+          '*'
+        )
+      }
+
+      install()
+
+      document.getElementById('build').addEventListener('click', async () => {
+        install()
+        say('recording four seconds of a canvas, so the bytes are real and playable')
+
+        const recorded = await recordCanvas()
+        say(`recorded ${recorded.size} bytes of ${recorded.type}`)
+
+        // The MediaSource path, in three chunks, which is what a real player does.
+        const mediaSource = new MediaSource()
+        const msePlayer = document.getElementById('mse-player')
+        msePlayer.src = URL.createObjectURL(mediaSource)
+        await once(mediaSource, 'sourceopen')
+
+        const mimeType = recorded.type || 'video/webm'
+        const buffer = mediaSource.addSourceBuffer(mimeType)
+        const chunkSize = Math.ceil(recorded.size / 3)
+        const bytes = new Uint8Array(await recorded.arrayBuffer())
+        for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+          await buffer.appendBuffer(bytes.slice(offset, offset + chunkSize))
+        }
+        mediaSource.endOfStream()
+        say(`appended ${Math.ceil(bytes.length / chunkSize)} chunks to a MediaSource`)
+
+        // The blob path, which is already a whole file and should be saved without copying anything.
+        const blobAddress = URL.createObjectURL(recorded)
+        document.getElementById('blob-player').src = blobAddress
+        say(`addressed the finished blob as ${blobAddress}`)
+      })
+
+      saveMse.addEventListener('click', () => {
+        const id = [...streams.values()].find((s) => s.origin === 'mse')?.streamId
+        if (id === undefined) return say('no MediaSource stream to save')
+        say('asking the hook for the MediaSource file')
+        assemble(id, 'probe_mse.webm')
+      })
+
+      saveBlob.addEventListener('click', () => {
+        const id = [...streams.values()].find((s) => s.origin === 'blob')?.streamId
+        if (id === undefined) return say('no blob stream to save')
+        say('asking the hook for the blob file')
+        assemble(id, 'probe_blob.webm')
+      })
+
+      /** Four seconds of a moving canvas, encoded locally. The bytes are genuine media. */
+      function recordCanvas() {
+        const canvas = document.createElement('canvas')
+        canvas.width = 320
+        canvas.height = 180
+        const context = canvas.getContext('2d')
+
+        return new Promise((resolve, reject) => {
+          const recorder = new MediaRecorder(canvas.captureStream(30))
+          const chunks = []
+          recorder.ondataavailable = (event) => chunks.push(event.data)
+          recorder.onerror = () => reject(new Error('the recording failed'))
+          recorder.onstop = () =>
+            resolve(new Blob(chunks, { type: recorder.mimeType || 'video/webm' }))
+
+          let frame = 0
+          const draw = () => {
+            frame += 1
+            context.fillStyle = `hsl(${(frame * 4) % 360} 70% 45%)`
+            context.fillRect(0, 0, canvas.width, canvas.height)
+            context.fillStyle = '#fff'
+            context.font = '48px system-ui'
+            context.fillText(String(frame), 140, 100)
+          }
+          const timer = setInterval(draw, 33)
+
+          recorder.start()
+          setTimeout(() => {
+            clearInterval(timer)
+            recorder.stop()
+          }, 4000)
+        })
+      }
+
+      function once(target, event) {
+        return new Promise((resolve) => target.addEventListener(event, resolve, { once: true }))
+      }
+    </script>
+  </body>
+</html>

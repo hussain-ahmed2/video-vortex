@@ -9,6 +9,10 @@
 // every build. What the fake buys is behaviour: a write is visible to the next
 // read, a broadcast to nobody rejects, a failed callback sees `lastError`.
 
+import type { FakeAction } from './action'
+import type { FakeScripting } from './scripting'
+import type { FakeWebRequest } from './web-request'
+
 /** Chrome's callback shape. Never invoked by hand, only by a fake. */
 export type FakeCallback = (...args: never[]) => void
 
@@ -19,13 +23,16 @@ export type MessageListener = (
 ) => boolean | undefined
 
 /**
- * The add/remove/has shape every `chrome.*` event object has.
+ * The add/remove/has shape every `chrome.*` event object has, plus the two members a fake
+ * needs and the browser does not have.
  *
- * `fire` is the one test side member, and it is why the fake's event type is not
- * simply the browser's: Chrome fires these itself, while a fake has to be told,
- * so a test needs a way to trigger the event at all.
+ * `fire` exists because Chrome fires these events itself while a fake has to be told, so a
+ * test needs a way to trigger one at all. `listeners` exists because another fake has to
+ * deliver to them: `chrome.tabs.sendMessage` reaches a content script through the very
+ * listeners it registered on `runtime.onMessage`, so the tabs fake needs to see them.
  */
 export interface FakeEvent<L extends FakeCallback> {
+  listeners: Set<L>
   addListener(listener: L): void
   removeListener(listener: L): void
   hasListener(listener: L): boolean
@@ -109,18 +116,49 @@ export interface FakeTabs {
 /** Test side driver for tabs. Not part of the API. */
 export interface FakeTabsControl {
   setTab(tab: FakeTab): void
-  /** Whether a content script is listening, as the real API sees it. */
+  /**
+   * Whether a content script is listening, as the real API sees it.
+   *
+   * Kept as a separate switch from `setContentScriptListener` because "no content
+   * script on this page" and "a content script is there but has not registered a
+   * listener" fail the same way to the caller and are worth telling apart in a test.
+   */
   setContentScriptListening(listening: boolean): void
+  /**
+   * The listener a content script on this tab registers.
+   *
+   * `chrome.tabs.sendMessage` resolves through this rather than always resolving
+   * undefined, because the worker's assembly request is answered by the content
+   * script and not by anything the worker owns. Without it the only tab message a
+   * test could exercise was the failure.
+   */
+  setContentScriptListener(listener: MessageListener | undefined): void
+  /** Every message sent to a tab, in order. */
+  sentMessages(): { tabId: number; message: unknown }[]
 }
 
 export interface FakeTabsWithControl extends FakeTabs {
   control: FakeTabsControl
 }
 
+/** Test side driver for the runtime. Not part of the API. */
+export interface FakeRuntimeControl {
+  /**
+   * Which tab a message sent from a content script appears to come from.
+   *
+   * Chrome puts the sending tab on `sender.tab`, and the worker needs it: a report from the
+   * page is stored against the tab it came from, and a message with no tab behind it is
+   * dropped and counted. Without this the only sender a test could produce was an empty one,
+   * so no test could ever drive a content script and the worker together.
+   */
+  setSenderTab(tabId: number | undefined): void
+}
+
 export interface FakeRuntime {
   lastError: { message: string } | undefined
   onMessage: FakeEvent<MessageListener>
   sendMessage(message: unknown, callback?: FakeCallback): unknown
+  control: FakeRuntimeControl
 }
 
 export interface FakeChrome {
@@ -128,4 +166,7 @@ export interface FakeChrome {
   runtime: FakeRuntime
   downloads: FakeDownloads
   tabs: FakeTabsWithControl
+  action: FakeAction
+  webRequest: FakeWebRequest
+  scripting: FakeScripting
 }

@@ -16,7 +16,11 @@ function readItems(
     return Object.fromEntries(store)
   }
   if (typeof keys === 'string') {
-    return store.has(keys) ? store.get(keys) : defaultValue
+    // Chrome answers a single named key with an object keyed by that name, never with
+    // the bare value. Reading it as a bare value is a mistake a test cannot catch,
+    // because the fake would agree with the mistake, and the production code it is
+    // meant to check would then be written to match a shape Chrome never sends.
+    return { [keys]: store.has(keys) ? store.get(keys) : defaultValue }
   }
   if (Array.isArray(keys)) {
     const found: Record<string, unknown> = {}

@@ -265,6 +265,27 @@ describe('the purity guard', () => {
     const dir = fixtureWithManifest({})
     expect(() => collectPurityViolations(join(dir, 'src/engine'))).toThrow()
   })
+
+  // The assertions that make the guard mean anything. The fixture cases prove the rules
+  // fire; these two make a browser call in the real engine a red build, which is the
+  // whole reason the engine is a directory rather than a convention.
+  // covers: AC-7
+  describe('the real engine', () => {
+    const engineDir = join(findProjectRoot(process.cwd()), 'src', 'engine')
+
+    it('has modules to check, so this cannot pass by finding nothing', () => {
+      expect(collectPurityViolations(engineDir).inspected).toBeGreaterThan(0)
+    })
+
+    it('calls no browser API and imports no runtime module', () => {
+      const result = collectPurityViolations(engineDir)
+      const report = result.violations.map(
+        (violation) => `${violation.file}:${violation.line} ${violation.rule} ${violation.text}`
+      )
+
+      expect(report).toEqual([])
+    })
+  })
 })
 
 describe('the co located test guard', () => {
@@ -405,6 +426,17 @@ describe('the co located test guard', () => {
     expect(collectModulesMissingTests(join(dir, 'src/engine')).untested).toContain(
       'src/engine/merge.ts'
     )
+  })
+
+  // The same reasoning as the real engine purity check above: the fixture cases prove
+  // the rules fire, and this makes a new engine module shipped without a test a red
+  // build rather than something a reviewer has to notice.
+  it('finds no untested module in the real engine', () => {
+    const engineDir = join(findProjectRoot(process.cwd()), 'src', 'engine')
+    const result = collectModulesMissingTests(engineDir)
+
+    expect(result.inspected).toBeGreaterThan(0)
+    expect(result.untested).toEqual([])
   })
 })
 

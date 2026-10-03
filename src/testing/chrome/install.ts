@@ -5,11 +5,14 @@
 // Tests call this explicitly rather than through a setup file, so a test that
 // wants no browser global at all simply never calls it.
 
+import { createFakeAction } from './action'
 import { createFakeDownloads } from './downloads'
 import { createFakeRuntime } from './runtime'
+import { createFakeScripting } from './scripting'
 import { createFakeStorage } from './storage'
 import { createFakeTabs } from './tabs'
 import type { FakeChrome, FakeTab } from './types'
+import { createFakeWebRequest } from './web-request'
 
 /**
  * Installs the fakes as the global `chrome` object and returns them.
@@ -27,6 +30,9 @@ export function installFakeChrome(tabs: FakeTab[] = []): FakeChrome {
     storage: createFakeStorage(),
     runtime,
     downloads: createFakeDownloads(),
+    action: createFakeAction(),
+    webRequest: createFakeWebRequest(),
+    scripting: createFakeScripting(),
     // A failed tab message is reported through the same `runtime.lastError` the
     // runtime fake owns, rather than through a second error channel of its own.
     tabs: createFakeTabs(tabs, {

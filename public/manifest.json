@@ -9,7 +9,7 @@
     "downloads",
     "storage",
     "webRequest",
-    "declarativeNetRequestWithHostAccess"
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -24,13 +24,6 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ],
   "icons": {
     "128": "icon128.png"
   }

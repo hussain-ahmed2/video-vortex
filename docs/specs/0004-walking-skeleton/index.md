@@ -1,7 +1,7 @@
 # 0004. Walking skeleton: detect, list, download
 
 **Date**: 2026-10-01
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
@@ -288,38 +288,38 @@ task that writes it.
 This slice creates seven engine modules. `src/engine/match.ts`, `src/engine/page-access.ts` and
 `src/engine/extractors/` are not created here and arrive with features 6 and 8.
 
-1. Write `src/engine/types.ts` and `src/engine/messages.ts`: the record including `seenCount`, the
+1. [x] Write `src/engine/types.ts` and `src/engine/messages.ts`: the record including `seenCount`, the
    entry, the draft, the five messages and their zod schemas, plus the contract version constant,
    with tests that parse every message both ways, satisfies **AC-5**, **AC-10**, **AC-14**
-2. Write `src/engine/media-rules.ts` and `src/engine/identity.ts`: the content type to container
+2. [x] Write `src/engine/media-rules.ts` and `src/engine/identity.ts`: the content type to container
    map and the known container list above, `isDownloadable`, kind classification, the identity
    tuple with `unknown` comparing equal to itself, and the fallback's id and `reason`, with tests,
    satisfies **AC-1**, **AC-4**
-3. Write `src/engine/state-port.ts`: the four typed operations the engine declares, plus the in
+3. [x] Write `src/engine/state-port.ts`: the four typed operations the engine declares, plus the in
    memory implementation the tests supply, satisfies **AC-3**, **AC-7**
-4. Write `src/engine/merge.ts` and `src/engine/filename.ts`: the field by field merge, the fifty
+4. [x] Write `src/engine/merge.ts` and `src/engine/filename.ts`: the field by field merge, the fifty
    entry cap, `hiddenCount` derived from `seenCount`, the per tab serialisation helper, and the six
    step filename rule, with tests covering a merge, a cap eviction, a reappearing entry and every
    filename step, satisfies **AC-4**, **AC-9**, **AC-10**
-5. Add `webRequest` and `action` fakes to the harness under `src/testing/chrome/`, so the observer,
+5. [x] Add `webRequest` and `action` fakes to the harness under `src/testing/chrome/`, so the observer,
    the badge and the two reports arriving together have a test path, satisfies **AC-7**, **AC-9**,
    **AC-16**
-6. Change `public/manifest.json`: add `scripting`, drop `declarativeNetRequestWithHostAccess`, and
+6. [x] Change `public/manifest.json`: add `scripting`, drop `declarativeNetRequestWithHostAccess`, and
    drop the declarative `content_scripts` entry so injection is on demand, satisfies **AC-13**
-7. Rewrite the worker's detection half: the `onHeadersReceived` observer filtered to 2xx media
+7. [x] Rewrite the worker's detection half: the `onHeadersReceived` observer filtered to 2xx media
    responses using the final response's url, writing through the port, with the index key
    maintained in the same storage operation, the startup reconciliation and listener re
    registration, `chrome.tabs.onRemoved` removing the record, and the badge count capped at `99+`,
    satisfies **AC-1**, **AC-3**, **AC-16**, **AC-19**
-8. Rewrite the worker's message half: the five messages, the read path with the stale `pageUrl`
+8. [x] Rewrite the worker's message half: the five messages, the read path with the stale `pageUrl`
    check, the `unsupported` predicate and the injection branch, `chrome.downloads` with
    `saveAs: false` and its progress, `inFlight` filtered to the record's urls, and the broadcast
    only when the merged record differs, satisfies **AC-5**, **AC-6**, **AC-11**, **AC-12**, **AC-17**
-9. Rewrite `src/content.ts` down to reporting `document.title` and page URL changes, with the
+9. [x] Rewrite `src/content.ts` down to reporting `document.title` and page URL changes, with the
    `globalThis` contract stamp so a duplicate or stale injection returns early, satisfies **AC-8**
-10. Delete `src/lib/schemas.ts` along with the YouTube banner, `YouTubeMeta`, `FETCH_YOUTUBE_DATA`
+10. [x] Delete `src/lib/schemas.ts` along with the YouTube banner, `YouTubeMeta`, `FETCH_YOUTUBE_DATA`
     and the remaining old pipeline in both runtimes, satisfies **AC-14**, **AC-15**
-11. Rebuild the popup: rows at `min-h-10` with `h-8 w-8` controls and accessible names, both state
+11. [x] Rebuild the popup: rows at `min-h-10` with `h-8 w-8` controls and accessible names, both state
     vocabularies, the three displays each under its condition, the one second staleness interval
     that reads no data, the copy table above, non downloadable rows with no control, and the read
     on `TAB_MEDIA_UPDATED` instead of the poll, satisfies **AC-2**, **AC-6**, **AC-17**, **AC-19**

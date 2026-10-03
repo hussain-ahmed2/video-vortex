@@ -5,7 +5,13 @@
 // normal, not an error.
 
 import { deliver, NO_RECEIVING_END, splitCallback } from './dual'
-import type { FakeCallback, FakeEvent, FakeRuntime, MessageListener } from './types'
+import type {
+  FakeCallback,
+  FakeEvent,
+  FakeRuntime,
+  FakeRuntimeControl,
+  MessageListener,
+} from './types'
 
 function createEvent<L extends FakeCallback>(): FakeEvent<L> & { listeners: Set<L> } {
   const listeners = new Set<L>()
@@ -28,10 +34,21 @@ function createEvent<L extends FakeCallback>(): FakeEvent<L> & { listeners: Set<
 
 export function createFakeRuntime(): FakeRuntime {
   const onMessage = createEvent<MessageListener>()
+  const control: FakeRuntimeControl = {
+    setSenderTab(tabId) {
+      senderTabId = tabId
+    },
+  }
+
+  // Which tab the sender appears to be on. Undefined is the honest default and not an
+  // oversight: it is what the popup looks like, and it is why the worker drops a report that
+  // arrives with no tab behind it.
+  let senderTabId: number | undefined
 
   const runtime: FakeRuntime = {
     lastError: undefined,
     onMessage,
+    control,
 
     sendMessage(...args: unknown[]): unknown {
       const { callback, rest } = splitCallback(args)
@@ -56,9 +73,10 @@ export function createFakeRuntime(): FakeRuntime {
       // channel open only when that listener returned true.
       let answered = false
       let response: unknown
+      const sender = senderTabId === undefined ? {} : { tab: { id: senderTabId } }
       for (const listener of onMessage.listeners) {
         response = undefined
-        const keptOpen = listener(message, {}, (value?: unknown) => {
+        const keptOpen = listener(message, sender, (value?: unknown) => {
           response = value
         })
         if (response !== undefined) {

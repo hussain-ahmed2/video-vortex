@@ -24,24 +24,26 @@ function callbackSpy(): { calls: unknown[]; callback: FakeCallback } {
 }
 
 describe('fake storage', () => {
-  it('returns a written value on the next read', async () => {
+  it('answers a single named key with an object keyed by that name', async () => {
+    // Chrome's shape, not the bare value. Production code reads `stored[key]`, and a
+    // fake that returned the value itself would make that code look broken rather than
+    // making the fake wrong.
     await fake.storage.session.set({ 'vv:tab:1': { entries: [] } })
-    const read = (await fake.storage.session.get('vv:tab:1')) as {
-      entries: unknown[]
-    }
-    expect(read.entries).toEqual([])
+    const read = await fake.storage.session.get('vv:tab:1')
+
+    expect(read).toEqual({ 'vv:tab:1': { entries: [] } })
   })
 
   it('returns the stored value by reference, with no deep copy', async () => {
     const record = { entries: [] }
     await fake.storage.session.set({ 'vv:tab:1': record })
-    const read = await fake.storage.session.get('vv:tab:1')
-    expect(read).toBe(record)
+    const read = (await fake.storage.session.get('vv:tab:1')) as Record<string, unknown>
+
+    expect(read['vv:tab:1']).toBe(record)
   })
 
-  it('returns the default for an absent key', async () => {
-    const read = await fake.storage.session.get('nope', 'fallback')
-    expect(read).toBe('fallback')
+  it('returns the default for an absent key, under that key', async () => {
+    expect(await fake.storage.session.get('nope', 'fallback')).toEqual({ nope: 'fallback' })
   })
 
   it('returns every item for a null key', async () => {
@@ -51,13 +53,13 @@ describe('fake storage', () => {
 
   it('isolates one storage area from another', async () => {
     await fake.storage.session.set({ shared: 'from session' })
-    expect(await fake.storage.local.get('shared', 'absent')).toBe('absent')
+    expect(await fake.storage.local.get('shared', 'absent')).toEqual({ shared: 'absent' })
   })
 
   it('removes and clears', async () => {
     await fake.storage.session.set({ a: 1, b: 2 })
     await fake.storage.session.remove('a')
-    expect(await fake.storage.session.get('a', 'gone')).toBe('gone')
+    expect(await fake.storage.session.get('a', 'gone')).toEqual({ a: 'gone' })
     await fake.storage.session.clear()
     expect(await fake.storage.session.get(null)).toEqual({})
   })
@@ -67,7 +69,8 @@ describe('fake storage', () => {
     const { calls, callback } = callbackSpy()
     const returned = fake.storage.session.get('a', callback)
     expect(returned).toBeUndefined()
-    expect(calls).toEqual([1])
+    // `calls` already collects the callback's arguments, so this is the whole result.
+    expect(calls).toEqual([{ a: 1 }])
   })
 
   it('returns every item when asked with no key at all', async () => {
@@ -445,5 +448,72 @@ describe('installing the fakes', () => {
 
     expect(second).not.toBe(first)
     expect(globalThis.chrome).toBe(second)
+  })
+})
+
+describe('delivering a message to a content script', () => {
+  // The worker's assembly request is answered by the content script and not by
+  // anything the worker owns, so a fake that only modelled the failure would leave
+  // that hop untestable. Spec 0005 AC-17.
+
+  it('resolves with what the content script answered', async () => {
+    fake.tabs.control.setContentScriptListener((_message, _sender, sendResponse) => {
+      sendResponse({ ok: true })
+      return false
+    })
+
+    await expect(fake.tabs.sendMessage(1, { name: 'STREAM_ASSEMBLE' })).resolves.toEqual({
+      ok: true,
+    })
+  })
+
+  it('answers in the callback form too, the way production code calls it', () => {
+    const { calls, callback } = callbackSpy()
+    fake.tabs.control.setContentScriptListener((_message, _sender, sendResponse) => {
+      sendResponse({ ok: false, error: 'already_running' })
+      return false
+    })
+
+    fake.tabs.sendMessage(1, { name: 'STREAM_ASSEMBLE' }, callback)
+    expect(calls).toEqual([{ ok: false, error: 'already_running' }])
+  })
+
+  it('tells the content script which tab it is on, the way Chrome does', () => {
+    const seen: unknown[] = []
+    fake.tabs.control.setContentScriptListener((_message, sender) => {
+      seen.push(sender)
+      return false
+    })
+
+    fake.tabs.sendMessage(7, { name: 'STREAM_ASSEMBLE' })
+    // On `sender.tab`, which is where Chrome puts it and what a content script reads to tell
+    // a message addressed to it from one the popup sent for the worker.
+    expect(seen).toEqual([{ tab: { id: 7 } }])
+  })
+
+  it('resolves undefined when the listener answers nothing', async () => {
+    fake.tabs.control.setContentScriptListener(() => false)
+    await expect(fake.tabs.sendMessage(1, { name: 'STREAM_ASSEMBLE' })).resolves.toBeUndefined()
+  })
+
+  it('still refuses when the page has no content script at all', async () => {
+    fake.tabs.control.setContentScriptListening(false)
+    fake.tabs.control.setContentScriptListener((_message, _sender, sendResponse) => {
+      sendResponse({ ok: true })
+      return false
+    })
+
+    await expect(fake.tabs.sendMessage(1, { name: 'STREAM_ASSEMBLE' })).rejects.toThrow(
+      NO_RECEIVING_END
+    )
+    expect(fake.runtime.lastError?.message).toBe(NO_RECEIVING_END)
+  })
+
+  it('records what was sent, so a test can assert the forward reached the right tab', () => {
+    fake.tabs.control.setContentScriptListener(() => false)
+    fake.tabs.sendMessage(3, { name: 'STREAM_ASSEMBLE' })
+    fake.tabs.sendMessage(9, { name: 'STREAM_ASSEMBLE' })
+
+    expect(fake.tabs.control.sentMessages().map((sent) => sent.tabId)).toEqual([3, 9])
   })
 })

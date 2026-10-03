@@ -4,6 +4,13 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
 
+// The popup and the service worker, built as ES modules.
+//
+// `background.js` may import a shared chunk because the manifest declares the service
+// worker as `"type": "module"`, and the popup may because `index.html` loads it with
+// `type="module"`. The content script may not, so it is built separately by
+// `vite.content.config.ts` as one self contained file.
+//
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -30,11 +37,12 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         background: resolve(__dirname, 'src/background.ts'),
-        content: resolve(__dirname, 'src/content.ts'),
       },
       output: {
         entryFileNames: (chunk) => {
-          if (chunk.name === 'background' || chunk.name === 'content') {
+          // The manifest names this file by flat name, so it must not land in a
+          // hashed assets directory.
+          if (chunk.name === 'background') {
             return '[name].js';
           }
           return 'assets/[name]-[hash].js';
